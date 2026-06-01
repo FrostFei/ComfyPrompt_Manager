@@ -12,6 +12,7 @@ const DEFAULT_SETTINGS = {
 
 const state = loadState();
 let toastTimer = null;
+let selectedDictionaryId = null;
 
 const el = {
   exportDataBtn: document.getElementById("exportDataBtn"),
@@ -88,6 +89,8 @@ const el = {
   addSelectedToDictionaryBtn: document.getElementById("addSelectedToDictionaryBtn"),
   dictionarySearch: document.getElementById("dictionarySearch"),
   dictionaryCategoryFilter: document.getElementById("dictionaryCategoryFilter"),
+  dictionaryToolbar: document.getElementById("dictionaryToolbar"),
+  dictionarySelectedHint: document.getElementById("dictionarySelectedHint"),
   dictionaryList: document.getElementById("dictionaryList")
 };
 
@@ -250,6 +253,8 @@ function bindDictionaryEvents() {
   el.dictionarySearch.addEventListener("input", renderDictionary);
   el.dictionaryCategoryFilter.addEventListener("change", renderDictionary);
   el.dictionaryList.addEventListener("click", handleDictionaryClick);
+  el.dictionaryList.addEventListener("focusin", handleDictionaryFocus);
+  el.dictionaryToolbar.addEventListener("click", handleDictionaryToolbarClick);
 }
 
 function bindSettingsEvents() {
@@ -1059,6 +1064,7 @@ function saveDictionaryItem(event) {
   }
 
   upsertById(state.dictionary, item);
+  selectedDictionaryId = item.id;
   resetDictionaryForm();
   saveState();
   renderCategoryFilters();
@@ -1093,16 +1099,24 @@ function renderDictionary() {
     return matchesCategory && (!query || haystack.includes(query));
   });
 
+  if (!items.some((item) => item.id === selectedDictionaryId)) {
+    selectedDictionaryId = null;
+  }
+
   el.dictionaryList.innerHTML = "";
   if (!items.length) {
     el.dictionaryList.innerHTML = `<div class="empty-state">暂无词条</div>`;
+    updateDictionarySelectionUi();
     return;
   }
 
   items.forEach((item) => {
     const card = document.createElement("article");
-    card.className = "dictionary-item";
+    const isSelected = item.id === selectedDictionaryId;
+    card.className = "dictionary-item" + (isSelected ? " selected" : "");
     card.dataset.id = item.id;
+    card.tabIndex = 0;
+    card.setAttribute("aria-selected", String(isSelected));
     card.innerHTML = `
       <div class="dictionary-main">
         <strong title="${escapeAttr(item.chinese || item.english)}">${escapeHtml(item.chinese || item.english)}</strong>
@@ -1113,29 +1127,66 @@ function renderDictionary() {
         ${item.aliases ? `<span title="${escapeAttr(item.aliases)}">别名：${escapeHtml(item.aliases)}</span>` : ""}
         ${item.note ? `<span title="${escapeAttr(item.note)}">备注：${escapeHtml(item.note)}</span>` : ""}
       </div>
-      <div class="dictionary-actions">
-        <button type="button" data-action="insert-positive">正向</button>
-        <button type="button" data-action="insert-negative" class="secondary">负向</button>
-        <button type="button" data-action="edit" class="secondary">编辑</button>
-        <button type="button" data-action="delete" class="danger">删除</button>
-      </div>
     `;
     el.dictionaryList.appendChild(card);
   });
+
+  updateDictionarySelectionUi();
 }
 
 function handleDictionaryClick(event) {
-  const action = event.target.dataset.action;
   const card = event.target.closest(".dictionary-item");
-  if (!action || !card) return;
+  if (!card) return;
 
-  const item = state.dictionary.find((entry) => entry.id === card.dataset.id);
-  if (!item) return;
+  card.focus();
+  selectDictionaryItem(card.dataset.id);
+}
 
+function handleDictionaryFocus(event) {
+  const card = event.target.closest(".dictionary-item");
+  if (!card) return;
+  selectDictionaryItem(card.dataset.id);
+}
+
+function handleDictionaryToolbarClick(event) {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+
+  const item = getSelectedDictionaryItem();
+  if (!item) {
+    showToast("请先选中一个词条");
+    return;
+  }
+
+  const action = button.dataset.action;
   if (action === "edit") editDictionaryItem(item);
   if (action === "delete") deleteDictionaryItem(item.id);
   if (action === "insert-positive") insertDictionaryItem(item, "positive");
   if (action === "insert-negative") insertDictionaryItem(item, "negative");
+}
+
+function selectDictionaryItem(id) {
+  const item = state.dictionary.find((entry) => entry.id === id);
+  if (!item) return;
+  selectedDictionaryId = item.id;
+  updateDictionarySelectionUi();
+}
+
+function getSelectedDictionaryItem() {
+  return state.dictionary.find((entry) => entry.id === selectedDictionaryId) || null;
+}
+
+function updateDictionarySelectionUi() {
+  const selectedItem = getSelectedDictionaryItem();
+  const selectedLabel = selectedItem ? selectedItem.chinese || selectedItem.english : "";
+  el.dictionarySelectedHint.textContent = selectedItem ? `选中：${selectedLabel}` : "未选中词条";
+  el.dictionaryToolbar.classList.toggle("active", Boolean(selectedItem));
+
+  el.dictionaryList.querySelectorAll(".dictionary-item").forEach((card) => {
+    const isSelected = card.dataset.id === selectedDictionaryId;
+    card.classList.toggle("selected", isSelected);
+    card.setAttribute("aria-selected", String(isSelected));
+  });
 }
 
 function editDictionaryItem(item) {
@@ -1150,6 +1201,7 @@ function editDictionaryItem(item) {
 function deleteDictionaryItem(id) {
   if (!confirm("确定删除这个词条？")) return;
   state.dictionary = state.dictionary.filter((item) => item.id !== id);
+  if (selectedDictionaryId === id) selectedDictionaryId = null;
   saveState();
   renderCategoryFilters();
   renderDictionary();

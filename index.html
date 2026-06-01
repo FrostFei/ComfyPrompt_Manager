@@ -146,6 +146,15 @@
               <option value="">全部分类</option>
             </select>
           </div>
+          <div id="dictionaryToolbar" class="dictionary-toolbar" aria-label="字典词条操作">
+            <span id="dictionarySelectedHint" class="dictionary-toolbar-label">未选中词条</span>
+            <div class="dictionary-toolbar-actions">
+              <button type="button" data-action="insert-positive">插入正向</button>
+              <button type="button" data-action="insert-negative" class="secondary">插入负向</button>
+              <button type="button" data-action="edit" class="secondary">编辑</button>
+              <button type="button" data-action="delete" class="danger">删除</button>
+            </div>
+          </div>
           <div id="dictionaryList" class="item-list"></div>
         </section>
       </aside>
