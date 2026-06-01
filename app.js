@@ -55,8 +55,8 @@ const el = {
 
   libraryForm: document.getElementById("libraryForm"),
   libraryEditId: document.getElementById("libraryEditId"),
-  libraryChinese: document.getElementById("libraryChinese"),
-  libraryEnglish: document.getElementById("libraryEnglish"),
+  libraryTitle: document.getElementById("libraryTitle"),
+  libraryPrompt: document.getElementById("libraryPrompt"),
   libraryCategory: document.getElementById("libraryCategory"),
   libraryTags: document.getElementById("libraryTags"),
   libraryNote: document.getElementById("libraryNote"),
@@ -770,15 +770,15 @@ function saveLibraryItem(event) {
   const id = el.libraryEditId.value || uid("lib");
   const item = normalizeLibraryItem({
     id,
-    chinese: el.libraryChinese.value,
-    english: el.libraryEnglish.value,
+    title: el.libraryTitle.value,
+    prompt: el.libraryPrompt.value,
     category: el.libraryCategory.value,
     tags: el.libraryTags.value,
     note: el.libraryNote.value
   });
 
   if (!item) {
-    showToast("请填写中文或英文提示词");
+    showToast("请填写提示词内容");
     return;
   }
 
@@ -792,14 +792,15 @@ function saveLibraryItem(event) {
 
 function normalizeLibraryItem(item) {
   if (!item) return null;
-  const chinese = String(item.chinese || "").trim();
-  const english = String(item.english || "").trim();
-  if (!chinese && !english) return null;
+  const legacyPrompt = String(item.english || item.chinese || "").trim();
+  const prompt = String(item.prompt || legacyPrompt || "").trim();
+  if (!prompt) return null;
+  const title = String(item.title || item.chinese || item.english || prompt.slice(0, 32)).trim();
 
   return {
     id: item.id || uid("lib"),
-    chinese,
-    english,
+    title: title || "未命名提示词组",
+    prompt,
     category: String(item.category || "").trim(),
     tags: String(item.tags || "").trim(),
     note: String(item.note || "").trim()
@@ -811,7 +812,7 @@ function renderLibrary() {
   const category = el.libraryCategoryFilter.value;
   const items = state.library.filter((item) => {
     const matchesCategory = !category || item.category === category;
-    const haystack = normalizeSearch([item.chinese, item.english, item.category, item.tags, item.note].join(" "));
+    const haystack = normalizeSearch([item.title, item.prompt, item.category, item.tags, item.note].join(" "));
     return matchesCategory && (!query || haystack.includes(query));
   });
 
@@ -827,15 +828,16 @@ function renderLibrary() {
     card.dataset.id = item.id;
     card.innerHTML = `
       <div class="item-title">
-        <strong>${escapeHtml(item.english || item.chinese)}</strong>
+        <strong>${escapeHtml(item.title)}</strong>
         <span class="item-meta">${escapeHtml(item.category || "未分类")}</span>
       </div>
-      <div class="item-meta">${escapeHtml(item.chinese)}${item.chinese && item.english ? " / " : ""}${escapeHtml(item.english)}</div>
+      <div class="item-meta">${escapeHtml(getPromptPreview(item.prompt))}</div>
+      <p class="item-meta">${splitPrompt(item.prompt).length} 段</p>
       ${renderTags(item.tags)}
       ${item.note ? `<p class="item-meta">${escapeHtml(item.note)}</p>` : ""}
       <div class="button-row">
-        <button type="button" data-action="insert-positive">插入正向</button>
-        <button type="button" data-action="insert-negative" class="secondary">插入负向</button>
+        <button type="button" data-action="insert-positive">插入正向输入</button>
+        <button type="button" data-action="insert-negative" class="secondary">插入负向输入</button>
         <button type="button" data-action="edit" class="secondary">编辑</button>
         <button type="button" data-action="delete" class="danger">删除</button>
       </div>
@@ -859,19 +861,17 @@ function handleLibraryClick(event) {
 }
 
 function insertLibraryItem(item, kind) {
-  const text = item.english || item.chinese;
-  const segment = createSegment(text, 1);
-  state.prompts[kind].push(segment);
-  state.selected = { kind, id: segment.id };
-  saveState();
-  renderAll();
-  showToast(kind === "positive" ? "已插入正向提示词" : "已插入负向提示词");
+  const target = kind === "positive" ? el.positiveInput : el.negativeInput;
+  appendTextToPromptInput(target, item.prompt);
+  switchPromptTab(kind);
+  target.focus();
+  showToast(kind === "positive" ? "已追加到正向输入框" : "已追加到负向输入框");
 }
 
 function editLibraryItem(item) {
   el.libraryEditId.value = item.id;
-  el.libraryChinese.value = item.chinese;
-  el.libraryEnglish.value = item.english;
+  el.libraryTitle.value = item.title;
+  el.libraryPrompt.value = item.prompt;
   el.libraryCategory.value = item.category;
   el.libraryTags.value = item.tags;
   el.libraryNote.value = item.note;
@@ -888,6 +888,17 @@ function deleteLibraryItem(id) {
 function resetLibraryForm() {
   el.libraryForm.reset();
   el.libraryEditId.value = "";
+}
+
+function appendTextToPromptInput(target, text) {
+  const current = target.value.trimEnd();
+  const addition = String(text || "").trim();
+  if (!addition) return;
+  target.value = current ? `${current}\n${addition}` : addition;
+}
+
+function getPromptPreview(prompt) {
+  return String(prompt || "").replace(/\s+/g, " ").slice(0, 120);
 }
 
 function saveTemplate(event) {
