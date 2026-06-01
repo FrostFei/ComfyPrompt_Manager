@@ -358,14 +358,72 @@ h3 {
 }
 
 .library-item,
-.template-item,
-.dictionary-item {
+.template-item {
   display: grid;
   gap: 7px;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px;
   background: var(--panel-soft);
+}
+
+.dictionary-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px;
+  background: var(--panel-soft);
+}
+
+.dictionary-main,
+.dictionary-meta,
+.dictionary-actions {
+  min-width: 0;
+}
+
+.dictionary-main {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+}
+
+.dictionary-main strong,
+.dictionary-main span,
+.dictionary-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dictionary-main strong {
+  font-size: 13px;
+}
+
+.dictionary-main span,
+.dictionary-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dictionary-meta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.dictionary-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.dictionary-actions button {
+  min-height: 28px;
+  padding: 4px 7px;
 }
 
 .item-title {
@@ -592,5 +650,13 @@ h3 {
 
   .segment-item {
     grid-template-columns: 26px minmax(0, 1fr) 50px;
+  }
+
+  .dictionary-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dictionary-actions {
+    justify-content: flex-start;
   }
 }

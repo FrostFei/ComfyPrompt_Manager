@@ -1104,14 +1104,18 @@ function renderDictionary() {
     card.className = "dictionary-item";
     card.dataset.id = item.id;
     card.innerHTML = `
-      <div class="item-title">
-        <strong>${escapeHtml(item.chinese || item.english)}</strong>
-        <span class="item-meta">${escapeHtml(item.category || "未分类")}</span>
+      <div class="dictionary-main">
+        <strong title="${escapeAttr(item.chinese || item.english)}">${escapeHtml(item.chinese || item.english)}</strong>
+        <span title="${escapeAttr(item.english || item.chinese)}">${escapeHtml(item.english || item.chinese)}</span>
       </div>
-      <div class="item-meta">${escapeHtml(item.chinese)}${item.chinese && item.english ? " / " : ""}${escapeHtml(item.english)}</div>
-      ${item.aliases ? `<p class="item-meta">别名：${escapeHtml(item.aliases)}</p>` : ""}
-      ${item.note ? `<p class="item-meta">${escapeHtml(item.note)}</p>` : ""}
-      <div class="button-row">
+      <div class="dictionary-meta">
+        <span>${escapeHtml(item.category || "未分类")}</span>
+        ${item.aliases ? `<span title="${escapeAttr(item.aliases)}">别名：${escapeHtml(item.aliases)}</span>` : ""}
+        ${item.note ? `<span title="${escapeAttr(item.note)}">备注：${escapeHtml(item.note)}</span>` : ""}
+      </div>
+      <div class="dictionary-actions">
+        <button type="button" data-action="insert-positive">正向</button>
+        <button type="button" data-action="insert-negative" class="secondary">负向</button>
         <button type="button" data-action="edit" class="secondary">编辑</button>
         <button type="button" data-action="delete" class="danger">删除</button>
       </div>
@@ -1130,6 +1134,8 @@ function handleDictionaryClick(event) {
 
   if (action === "edit") editDictionaryItem(item);
   if (action === "delete") deleteDictionaryItem(item.id);
+  if (action === "insert-positive") insertDictionaryItem(item, "positive");
+  if (action === "insert-negative") insertDictionaryItem(item, "negative");
 }
 
 function editDictionaryItem(item) {
@@ -1149,6 +1155,15 @@ function deleteDictionaryItem(id) {
   renderDictionary();
   renderPromptArea("positive");
   renderPromptArea("negative");
+}
+
+function insertDictionaryItem(item, kind) {
+  const target = kind === "positive" ? el.positiveInput : el.negativeInput;
+  const text = item.english || item.chinese;
+  appendTextToPromptInput(target, text);
+  switchPromptTab(kind);
+  target.focus();
+  showToast(kind === "positive" ? "已追加到正向输入框" : "已追加到负向输入框");
 }
 
 function resetDictionaryForm() {
