@@ -370,9 +370,16 @@ function renderPromptArea(kind) {
     const item = document.createElement("li");
     const isSelected = state.selected.kind === kind && state.selected.id === segment.id;
     const translation = getDictionaryChineseTranslation(segment.text);
-    item.className = "segment-item" + (isSelected ? " selected" : "");
+    item.className = [
+      "segment-item",
+      isSelected ? "selected" : "",
+      index > 0 && segment.lineBreakBefore ? "line-break-before" : ""
+    ]
+      .filter(Boolean)
+      .join(" ");
     item.dataset.id = segment.id;
     item.innerHTML = `
+      <span class="segment-break-marker">↵ 换行</span>
       <span class="segment-index">${index + 1}</span>
       <input class="segment-text" type="text" value="${escapeAttr(segment.text)}" placeholder="待输入" aria-label="分段文本" />
       <span class="segment-translation${translation ? "" : " empty"}" title="${translation ? `中文翻译：${escapeAttr(translation)}` : ""}">${translation ? `译：${escapeHtml(translation)}` : ""}</span>
@@ -467,10 +474,26 @@ function appendPromptFromInput(kind) {
 }
 
 function splitPrompt(text) {
-  return text
+  const segments = [];
+  let pendingLineBreak = false;
+
+  String(text || "")
     .split(/[，,]/)
-    .map((part) => parseSegment(part))
-    .filter(Boolean);
+    .forEach((part, index) => {
+      const hasBreakBefore = index > 0 && (pendingLineBreak || hasLeadingLineBreak(part));
+      const parsed = parseSegment(part);
+
+      if (parsed) {
+        parsed.lineBreakBefore = segments.length > 0 && hasBreakBefore;
+        segments.push(parsed);
+        pendingLineBreak = hasTrailingLineBreak(part);
+        return;
+      }
+
+      pendingLineBreak = pendingLineBreak || hasAnyLineBreak(part);
+    });
+
+  return segments;
 }
 
 function parseSegment(rawText) {
@@ -490,11 +513,12 @@ function parseSegment(rawText) {
   return createSegment(raw, 1);
 }
 
-function createSegment(text, weight = 1) {
+function createSegment(text, weight = 1, options = {}) {
   return {
     id: uid("seg"),
     text: text.trim(),
-    weight: normalizeWeight(weight)
+    weight: normalizeWeight(weight),
+    lineBreakBefore: Boolean(options.lineBreakBefore)
   };
 }
 
@@ -504,7 +528,8 @@ function normalizeSegment(segment) {
   return {
     id: segment.id || uid("seg"),
     text,
-    weight: normalizeWeight(segment.weight)
+    weight: normalizeWeight(segment.weight),
+    lineBreakBefore: Boolean(segment.lineBreakBefore)
   };
 }
 
@@ -528,18 +553,52 @@ function formatSegment(segment) {
 }
 
 function buildPrompt(kind) {
-  return state.prompts[kind].map(formatSegment).filter(Boolean).join(", ");
+  return joinSegmentTexts(state.prompts[kind], formatSegment, ",\n", ", ");
 }
 
 function buildChineseReference(kind) {
-  return state.prompts[kind]
-    .map((segment) => {
+  return joinSegmentTexts(
+    state.prompts[kind],
+    (segment) => {
       if (!String(segment.text || "").trim()) return "";
       if (hasChineseText(segment.text)) return segment.text;
       return getDictionaryChineseTranslation(segment.text) || segment.text;
-    })
-    .filter(Boolean)
-    .join("，");
+    },
+    "，\n",
+    "，"
+  );
+}
+
+function joinSegmentTexts(segments, formatter, lineBreakSeparator, inlineSeparator) {
+  let output = "";
+
+  segments.forEach((segment) => {
+    const text = formatter(segment);
+    if (!text) return;
+
+    if (!output) {
+      output = text;
+      return;
+    }
+
+    output += `${segment.lineBreakBefore ? lineBreakSeparator : inlineSeparator}${text}`;
+  });
+
+  return output;
+}
+
+function hasAnyLineBreak(value) {
+  return /[\r\n]/.test(String(value || ""));
+}
+
+function hasLeadingLineBreak(value) {
+  const leadingWhitespace = String(value || "").match(/^\s*/)?.[0] || "";
+  return hasAnyLineBreak(leadingWhitespace);
+}
+
+function hasTrailingLineBreak(value) {
+  const trailingWhitespace = String(value || "").match(/\s*$/)?.[0] || "";
+  return hasAnyLineBreak(trailingWhitespace);
 }
 
 function updatePromptOutput(kind) {
@@ -1071,12 +1130,15 @@ function getPromptPreview(prompt) {
 }
 
 function buildPromptTextChineseReference(prompt) {
-  return splitPrompt(prompt)
-    .map((segment) => {
+  return joinSegmentTexts(
+    splitPrompt(prompt),
+    (segment) => {
       if (hasChineseText(segment.text)) return segment.text;
       return getDictionaryChineseTranslation(segment.text) || segment.text;
-    })
-    .join("，");
+    },
+    "，\n",
+    "，"
+  );
 }
 
 function saveTemplate(event) {
@@ -1471,11 +1533,11 @@ async function translateCurrentInput() {
         onReasoning: (token) => appendReasoningToken(token),
         onContent: (token) => {
           liveText += token;
-          el.translateOutput.value = [...translated, liveText].filter(Boolean).join(", ");
+          el.translateOutput.value = joinTranslatedUnits(parts, [...translated, liveText]);
         }
       });
       translated.push(translatedUnit);
-      el.translateOutput.value = translated.join(", ");
+      el.translateOutput.value = joinTranslatedUnits(parts, translated);
       if (state.settings.provider !== "mock") {
         cacheTranslationPair(unit, translatedUnit, resolvedDirection, { onLog: appendProcessLine });
       }
@@ -1491,6 +1553,20 @@ async function translateCurrentInput() {
     el.translateOutput.value = getFriendlyErrorMessage(error);
     showToast("翻译失败");
   }
+}
+
+function joinTranslatedUnits(sourceSegments, translations) {
+  if (sourceSegments.length <= 1) return translations.filter(Boolean).join(", ");
+
+  return joinSegmentTexts(
+    sourceSegments.map((segment, index) => ({
+      ...segment,
+      text: translations[index] || ""
+    })),
+    (segment) => segment.text,
+    ",\n",
+    ", "
+  );
 }
 
 function resolveTranslationDirection(text, selectedDirection) {
