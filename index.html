@@ -185,10 +185,20 @@
             <button type="button" class="danger" data-action="delete" title="删除">删除</button>
           </div>
           <ul id="positiveSegments" class="segment-list" aria-label="正向提示词分段"></ul>
-          <label class="merged-output">
-            合并结果
-            <textarea id="positiveOutput" rows="3" readonly></textarea>
-          </label>
+          <section class="merged-output">
+            <div class="merged-output-head">
+              <strong>合并结果</strong>
+              <div class="button-row compact">
+                <button id="copyPositiveMergedBtn" type="button" class="secondary">复制提示词</button>
+                <button id="copyPositiveChineseBtn" type="button" class="secondary">复制中文</button>
+              </div>
+            </div>
+            <textarea id="positiveOutput" rows="3" readonly aria-label="正向提示词合并结果"></textarea>
+            <label>
+              中文对照
+              <textarea id="positiveChineseOutput" rows="3" readonly aria-label="正向提示词中文对照"></textarea>
+            </label>
+          </section>
         </section>
 
         <section class="panel editor-panel" data-kind="negative">
@@ -214,10 +224,20 @@
             <button type="button" class="danger" data-action="delete" title="删除">删除</button>
           </div>
           <ul id="negativeSegments" class="segment-list" aria-label="负向提示词分段"></ul>
-          <label class="merged-output">
-            合并结果
-            <textarea id="negativeOutput" rows="3" readonly></textarea>
-          </label>
+          <section class="merged-output">
+            <div class="merged-output-head">
+              <strong>合并结果</strong>
+              <div class="button-row compact">
+                <button id="copyNegativeMergedBtn" type="button" class="secondary">复制提示词</button>
+                <button id="copyNegativeChineseBtn" type="button" class="secondary">复制中文</button>
+              </div>
+            </div>
+            <textarea id="negativeOutput" rows="3" readonly aria-label="负向提示词合并结果"></textarea>
+            <label>
+              中文对照
+              <textarea id="negativeChineseOutput" rows="3" readonly aria-label="负向提示词中文对照"></textarea>
+            </label>
+          </section>
         </section>
       </section>
 

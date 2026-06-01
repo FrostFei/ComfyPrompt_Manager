@@ -510,7 +510,21 @@ h3 {
 }
 
 .merged-output {
+  display: grid;
+  gap: 6px;
   color: var(--muted);
+}
+
+.merged-output-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.merged-output-head strong {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .merged-output textarea {

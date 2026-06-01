@@ -24,6 +24,8 @@ const el = {
   negativeInput: document.getElementById("negativeInput"),
   positiveOutput: document.getElementById("positiveOutput"),
   negativeOutput: document.getElementById("negativeOutput"),
+  positiveChineseOutput: document.getElementById("positiveChineseOutput"),
+  negativeChineseOutput: document.getElementById("negativeChineseOutput"),
   positiveSegments: document.getElementById("positiveSegments"),
   negativeSegments: document.getElementById("negativeSegments"),
   positiveCount: document.getElementById("positiveCount"),
@@ -196,6 +198,10 @@ function bindCoreEvents() {
   document.getElementById("parseNegativeBtn").addEventListener("click", () => parsePromptFromInput("negative"));
   document.getElementById("copyPositiveBtn").addEventListener("click", () => copyPrompt("positive"));
   document.getElementById("copyNegativeBtn").addEventListener("click", () => copyPrompt("negative"));
+  document.getElementById("copyPositiveMergedBtn").addEventListener("click", () => copyPrompt("positive"));
+  document.getElementById("copyNegativeMergedBtn").addEventListener("click", () => copyPrompt("negative"));
+  document.getElementById("copyPositiveChineseBtn").addEventListener("click", () => copyChineseReference("positive"));
+  document.getElementById("copyNegativeChineseBtn").addEventListener("click", () => copyChineseReference("negative"));
   document.getElementById("clearPositiveBtn").addEventListener("click", () => clearPrompt("positive"));
   document.getElementById("clearNegativeBtn").addEventListener("click", () => clearPrompt("negative"));
 
@@ -340,6 +346,7 @@ function renderPromptArea(kind) {
   const list = kind === "positive" ? el.positiveSegments : el.negativeSegments;
   const count = kind === "positive" ? el.positiveCount : el.negativeCount;
   const output = kind === "positive" ? el.positiveOutput : el.negativeOutput;
+  const chineseOutput = kind === "positive" ? el.positiveChineseOutput : el.negativeChineseOutput;
   const hint = kind === "positive" ? el.positiveSelectedHint : el.negativeSelectedHint;
 
   list.innerHTML = "";
@@ -365,6 +372,7 @@ function renderPromptArea(kind) {
     el.negativeTabCount.textContent = String(segments.length);
   }
   output.value = buildPrompt(kind);
+  chineseOutput.value = buildChineseReference(kind);
   const selectedIndex = state.selected.kind === kind ? segments.findIndex((segment) => segment.id === state.selected.id) : -1;
   hint.textContent = selectedIndex >= 0 ? `选中第 ${selectedIndex + 1} 段` : "未选中分段";
 }
@@ -474,11 +482,27 @@ function buildPrompt(kind) {
   return state.prompts[kind].map(formatSegment).join(", ");
 }
 
+function buildChineseReference(kind) {
+  return state.prompts[kind]
+    .map((segment) => {
+      if (hasChineseText(segment.text)) return segment.text;
+      return getDictionaryChineseTranslation(segment.text) || segment.text;
+    })
+    .join("，");
+}
+
 function updatePromptOutput(kind) {
   const output = kind === "positive" ? el.positiveOutput : el.negativeOutput;
+  const chineseOutput = kind === "positive" ? el.positiveChineseOutput : el.negativeChineseOutput;
   const count = kind === "positive" ? el.positiveCount : el.negativeCount;
   output.value = buildPrompt(kind);
+  chineseOutput.value = buildChineseReference(kind);
   count.textContent = `${state.prompts[kind].length} 段`;
+  if (kind === "positive") {
+    el.positiveTabCount.textContent = String(state.prompts[kind].length);
+  } else {
+    el.negativeTabCount.textContent = String(state.prompts[kind].length);
+  }
 }
 
 function handleSegmentClick(event, kind) {
@@ -686,6 +710,24 @@ async function copyPrompt(kind) {
     output.select();
     document.execCommand("copy");
     showToast("已复制");
+  }
+}
+
+async function copyChineseReference(kind) {
+  const text = buildChineseReference(kind);
+  if (!text) {
+    showToast("没有可复制的中文对照");
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast(kind === "positive" ? "已复制正向中文对照" : "已复制负向中文对照");
+  } catch (error) {
+    const output = kind === "positive" ? el.positiveChineseOutput : el.negativeChineseOutput;
+    output.select();
+    document.execCommand("copy");
+    showToast("已复制中文对照");
   }
 }
 
@@ -964,6 +1006,8 @@ function saveDictionaryItem(event) {
   saveState();
   renderCategoryFilters();
   renderDictionary();
+  renderPromptArea("positive");
+  renderPromptArea("negative");
   showToast("词条已保存");
 }
 
@@ -1046,6 +1090,8 @@ function deleteDictionaryItem(id) {
   saveState();
   renderCategoryFilters();
   renderDictionary();
+  renderPromptArea("positive");
+  renderPromptArea("negative");
 }
 
 function resetDictionaryForm() {
@@ -1089,6 +1135,8 @@ function addSegmentToDictionary(segment) {
   saveState();
   renderCategoryFilters();
   renderDictionary();
+  renderPromptArea("positive");
+  renderPromptArea("negative");
   showToast("已加入字典");
 }
 
