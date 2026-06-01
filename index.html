@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ComfyUI 提示词整理工具</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <h1>ComfyUI 提示词整理工具</h1>
+        <p>本地运行 · LocalStorage 保存 · JSON 导入导出</p>
+      </div>
+      <div class="header-actions">
+        <button id="exportDataBtn" type="button">导出 JSON</button>
+        <label class="file-button">
+          导入 JSON
+          <input id="importDataInput" type="file" accept="application/json,.json" />
+        </label>
+        <button id="resetAllBtn" type="button" class="danger">清空数据</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="panel sidebar">
+        <nav class="tab-bar" aria-label="左侧功能">
+          <button class="tab-button active" type="button" data-tab="library">提示词库</button>
+          <button class="tab-button" type="button" data-tab="templates">模板库</button>
+          <button class="tab-button" type="button" data-tab="dictionary">字典</button>
+        </nav>
+
+        <section id="libraryTab" class="tab-panel active">
+          <form id="libraryForm" class="stack form-block">
+            <input id="libraryEditId" type="hidden" />
+            <label>
+              中文
+              <input id="libraryChinese" type="text" placeholder="例如：白色长发" />
+            </label>
+            <label>
+              英文
+              <input id="libraryEnglish" type="text" placeholder="例如：white long hair" />
+            </label>
+            <div class="two-col">
+              <label>
+                分类
+                <input id="libraryCategory" type="text" placeholder="角色 / 画风" />
+              </label>
+              <label>
+                标签
+                <input id="libraryTags" type="text" placeholder="逗号分隔" />
+              </label>
+            </div>
+            <label>
+              备注
+              <textarea id="libraryNote" rows="2"></textarea>
+            </label>
+            <div class="button-row">
+              <button type="submit">保存提示词</button>
+              <button id="libraryCancelBtn" type="button" class="secondary">取消编辑</button>
+            </div>
+          </form>
+
+          <div class="filter-row">
+            <input id="librarySearch" type="search" placeholder="搜索提示词" />
+            <select id="libraryCategoryFilter" aria-label="提示词分类筛选">
+              <option value="">全部分类</option>
+            </select>
+          </div>
+          <div id="libraryList" class="item-list"></div>
+        </section>
+
+        <section id="templatesTab" class="tab-panel">
+          <form id="templateForm" class="stack form-block">
+            <input id="templateEditId" type="hidden" />
+            <label>
+              模板名称
+              <input id="templateName" type="text" placeholder="例如：写实人像基础模板" />
+            </label>
+            <div class="two-col">
+              <label>
+                标签
+                <input id="templateTags" type="text" placeholder="逗号分隔" />
+              </label>
+              <label>
+                备注
+                <input id="templateNote" type="text" />
+              </label>
+            </div>
+            <label>
+              正向提示词
+              <textarea id="templatePositive" rows="3"></textarea>
+            </label>
+            <label>
+              负向提示词
+              <textarea id="templateNegative" rows="3"></textarea>
+            </label>
+            <div class="button-row">
+              <button type="button" id="fillTemplateFromCurrentBtn" class="secondary">填入当前</button>
+              <button type="submit">保存模板</button>
+              <button id="templateCancelBtn" type="button" class="secondary">取消编辑</button>
+            </div>
+          </form>
+          <div class="filter-row">
+            <input id="templateSearch" type="search" placeholder="搜索模板" />
+          </div>
+          <div id="templateList" class="item-list"></div>
+        </section>
+
+        <section id="dictionaryTab" class="tab-panel">
+          <form id="dictionaryForm" class="stack form-block">
+            <input id="dictionaryEditId" type="hidden" />
+            <label>
+              中文
+              <input id="dictionaryChinese" type="text" placeholder="例如：白色头发" />
+            </label>
+            <label>
+              英文
+              <input id="dictionaryEnglish" type="text" placeholder="例如：white hair" />
+            </label>
+            <div class="two-col">
+              <label>
+                分类
+                <input id="dictionaryCategory" type="text" placeholder="外观 / 构图" />
+              </label>
+              <label>
+                别名
+                <input id="dictionaryAliases" type="text" placeholder="逗号分隔" />
+              </label>
+            </div>
+            <label>
+              备注
+              <textarea id="dictionaryNote" rows="2"></textarea>
+            </label>
+            <div class="button-row">
+              <button type="submit">保存词条</button>
+              <button id="dictionaryCancelBtn" type="button" class="secondary">取消编辑</button>
+            </div>
+          </form>
+          <div class="button-row">
+            <button id="addSelectedToDictionaryBtn" type="button" class="secondary">当前分段加入字典</button>
+          </div>
+          <div class="filter-row">
+            <input id="dictionarySearch" type="search" placeholder="搜索字典" />
+            <select id="dictionaryCategoryFilter" aria-label="字典分类筛选">
+              <option value="">全部分类</option>
+            </select>
+          </div>
+          <div id="dictionaryList" class="item-list"></div>
+        </section>
+      </aside>
+
+      <section class="center-column">
+        <nav class="prompt-tabs" aria-label="提示词类型切换">
+          <button class="prompt-tab-button active" type="button" data-prompt-tab="positive">
+            正向提示词
+            <span id="positiveTabCount">0</span>
+          </button>
+          <button class="prompt-tab-button" type="button" data-prompt-tab="negative">
+            负向提示词
+            <span id="negativeTabCount">0</span>
+          </button>
+        </nav>
+
+        <section class="panel editor-panel active" data-kind="positive">
+          <div class="panel-title">
+            <div>
+              <h2>正向提示词</h2>
+              <span id="positiveCount" class="muted">0 段</span>
+            </div>
+            <div class="button-row compact">
+              <button id="parsePositiveBtn" type="button">分段</button>
+              <button id="copyPositiveBtn" type="button" class="secondary">复制</button>
+              <button id="clearPositiveBtn" type="button" class="danger">清空</button>
+            </div>
+          </div>
+          <textarea id="positiveInput" class="prompt-input" rows="4" placeholder="粘贴正向提示词，点击分段"></textarea>
+          <div class="segment-toolbar" data-kind="positive" aria-label="正向分段操作">
+            <span id="positiveSelectedHint" class="segment-toolbar-label">未选中分段</span>
+            <button type="button" class="secondary" data-action="weight-down" title="降低权重">权重-</button>
+            <button type="button" class="secondary" data-action="weight-up" title="增加权重">权重+</button>
+            <button type="button" class="secondary" data-action="move-up" title="上移">上移</button>
+            <button type="button" class="secondary" data-action="move-down" title="下移">下移</button>
+            <button type="button" class="secondary" data-action="add-dictionary" title="加入字典">入字典</button>
+            <button type="button" class="danger" data-action="delete" title="删除">删除</button>
+          </div>
+          <ul id="positiveSegments" class="segment-list" aria-label="正向提示词分段"></ul>
+          <label class="merged-output">
+            合并结果
+            <textarea id="positiveOutput" rows="3" readonly></textarea>
+          </label>
+        </section>
+
+        <section class="panel editor-panel" data-kind="negative">
+          <div class="panel-title">
+            <div>
+              <h2>负向提示词</h2>
+              <span id="negativeCount" class="muted">0 段</span>
+            </div>
+            <div class="button-row compact">
+              <button id="parseNegativeBtn" type="button">分段</button>
+              <button id="copyNegativeBtn" type="button" class="secondary">复制</button>
+              <button id="clearNegativeBtn" type="button" class="danger">清空</button>
+            </div>
+          </div>
+          <textarea id="negativeInput" class="prompt-input" rows="4" placeholder="粘贴负向提示词，点击分段"></textarea>
+          <div class="segment-toolbar" data-kind="negative" aria-label="负向分段操作">
+            <span id="negativeSelectedHint" class="segment-toolbar-label">未选中分段</span>
+            <button type="button" class="secondary" data-action="weight-down" title="降低权重">权重-</button>
+            <button type="button" class="secondary" data-action="weight-up" title="增加权重">权重+</button>
+            <button type="button" class="secondary" data-action="move-up" title="上移">上移</button>
+            <button type="button" class="secondary" data-action="move-down" title="下移">下移</button>
+            <button type="button" class="secondary" data-action="add-dictionary" title="加入字典">入字典</button>
+            <button type="button" class="danger" data-action="delete" title="删除">删除</button>
+          </div>
+          <ul id="negativeSegments" class="segment-list" aria-label="负向提示词分段"></ul>
+          <label class="merged-output">
+            合并结果
+            <textarea id="negativeOutput" rows="3" readonly></textarea>
+          </label>
+        </section>
+      </section>
+
+      <aside class="panel inspector">
+        <section class="stack">
+          <div class="panel-title">
+            <h2>分段详情</h2>
+          </div>
+          <div id="selectedDetail" class="detail-box empty-state">请选择一个分段</div>
+        </section>
+
+        <section class="stack">
+          <div class="panel-title">
+            <h2>翻译</h2>
+          </div>
+          <label>
+            输入
+            <textarea id="translateInput" rows="4"></textarea>
+          </label>
+          <div class="filter-row">
+            <select id="translateDirection">
+              <option value="auto">自动识别</option>
+              <option value="zh-en">中文 → 英文</option>
+              <option value="en-zh">英文 → 中文</option>
+            </select>
+            <button id="translateBtn" type="button">翻译</button>
+          </div>
+          <label>
+            结果
+            <textarea id="translateOutput" rows="5" readonly></textarea>
+          </label>
+          <div class="check-row">
+            <label class="inline-check">
+              <input id="showAiProcess" type="checkbox" />
+              显示 AI 过程
+            </label>
+            <label class="inline-check">
+              <input id="enableDeepSeekThinking" type="checkbox" />
+              DeepSeek 思考模式
+            </label>
+          </div>
+          <label>
+            AI 过程
+            <textarea id="aiProcessOutput" rows="7" readonly placeholder="翻译时会显示本地字典命中、API 请求进度，以及 DeepSeek 返回的 reasoning_content。"></textarea>
+          </label>
+        </section>
+
+        <section class="stack">
+          <div class="panel-title">
+            <h2>AI 设置</h2>
+          </div>
+          <label>
+            Provider
+            <select id="aiProvider">
+              <option value="deepseek">DeepSeek</option>
+              <option value="mock">Mock</option>
+              <option value="openai-compatible">OpenAI Compatible</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label>
+            Model
+            <input id="aiModel" type="text" placeholder="例如：deepseek-v4-flash" />
+          </label>
+          <label>
+            API Key
+            <div class="input-action-row">
+              <input id="aiApiKey" type="password" autocomplete="off" placeholder="仅保存在 LocalStorage" />
+              <button id="promptApiKeyBtn" type="button" class="secondary">输入</button>
+            </div>
+          </label>
+          <label>
+            Endpoint
+            <input id="aiEndpoint" type="text" placeholder="https://api.deepseek.com" />
+          </label>
+          <div class="button-row">
+            <button id="useDeepSeekDefaultsBtn" type="button" class="secondary">DeepSeek 默认</button>
+            <button id="testAiBtn" type="button">测试连接</button>
+          </div>
+          <p id="aiTestResult" class="muted status-line">未测试</p>
+          <p id="saveStatus" class="muted status-line">已自动保存</p>
+        </section>
+      </aside>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
