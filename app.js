@@ -812,7 +812,8 @@ function renderLibrary() {
   const category = el.libraryCategoryFilter.value;
   const items = state.library.filter((item) => {
     const matchesCategory = !category || item.category === category;
-    const haystack = normalizeSearch([item.title, item.prompt, item.category, item.tags, item.note].join(" "));
+    const chineseReference = buildPromptTextChineseReference(item.prompt);
+    const haystack = normalizeSearch([item.title, item.prompt, chineseReference, item.category, item.tags, item.note].join(" "));
     return matchesCategory && (!query || haystack.includes(query));
   });
 
@@ -824,6 +825,7 @@ function renderLibrary() {
 
   items.forEach((item) => {
     const card = document.createElement("article");
+    const chineseReference = buildPromptTextChineseReference(item.prompt);
     card.className = "library-item";
     card.dataset.id = item.id;
     card.innerHTML = `
@@ -832,6 +834,7 @@ function renderLibrary() {
         <span class="item-meta">${escapeHtml(item.category || "未分类")}</span>
       </div>
       <div class="item-meta">${escapeHtml(getPromptPreview(item.prompt))}</div>
+      <div class="library-translation">译：${escapeHtml(getPromptPreview(chineseReference))}</div>
       <p class="item-meta">${splitPrompt(item.prompt).length} 段</p>
       ${renderTags(item.tags)}
       ${item.note ? `<p class="item-meta">${escapeHtml(item.note)}</p>` : ""}
@@ -899,6 +902,15 @@ function appendTextToPromptInput(target, text) {
 
 function getPromptPreview(prompt) {
   return String(prompt || "").replace(/\s+/g, " ").slice(0, 120);
+}
+
+function buildPromptTextChineseReference(prompt) {
+  return splitPrompt(prompt)
+    .map((segment) => {
+      if (hasChineseText(segment.text)) return segment.text;
+      return getDictionaryChineseTranslation(segment.text) || segment.text;
+    })
+    .join("，");
 }
 
 function saveTemplate(event) {

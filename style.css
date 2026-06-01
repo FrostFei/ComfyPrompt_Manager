@@ -387,6 +387,15 @@ h3 {
   font-size: 12px;
 }
 
+.library-translation {
+  overflow: hidden;
+  color: var(--success);
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tags {
   display: flex;
   flex-wrap: wrap;
