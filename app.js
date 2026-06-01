@@ -13,6 +13,10 @@ const DEFAULT_SETTINGS = {
 const state = loadState();
 let toastTimer = null;
 let selectedDictionaryId = null;
+let segmentDragState = null;
+
+const SEGMENT_DRAG_DELAY = 420;
+const SEGMENT_DRAG_TOLERANCE = 8;
 
 const el = {
   exportDataBtn: document.getElementById("exportDataBtn"),
@@ -216,6 +220,11 @@ function bindCoreEvents() {
   el.negativeSegments.addEventListener("focusin", (event) => handleSegmentFocus(event, "negative"));
   el.positiveSegments.addEventListener("input", (event) => handleSegmentInput(event, "positive"));
   el.negativeSegments.addEventListener("input", (event) => handleSegmentInput(event, "negative"));
+  el.positiveSegments.addEventListener("pointerdown", (event) => handleSegmentPointerDown(event, "positive"));
+  el.negativeSegments.addEventListener("pointerdown", (event) => handleSegmentPointerDown(event, "negative"));
+  document.addEventListener("pointermove", handleSegmentPointerMove);
+  document.addEventListener("pointerup", handleSegmentPointerEnd);
+  document.addEventListener("pointercancel", handleSegmentPointerEnd);
   document.querySelectorAll(".segment-toolbar").forEach((toolbar) => {
     toolbar.addEventListener("click", handleSegmentToolbarClick);
   });
@@ -365,7 +374,7 @@ function renderPromptArea(kind) {
     item.dataset.id = segment.id;
     item.innerHTML = `
       <span class="segment-index">${index + 1}</span>
-      <input class="segment-text" type="text" value="${escapeAttr(segment.text)}" aria-label="分段文本" />
+      <input class="segment-text" type="text" value="${escapeAttr(segment.text)}" placeholder="待输入" aria-label="分段文本" />
       <span class="segment-translation${translation ? "" : " empty"}" title="${translation ? `中文翻译：${escapeAttr(translation)}` : ""}">${translation ? `译：${escapeHtml(translation)}` : ""}</span>
       <input class="segment-weight weight-input" type="number" min="0.1" step="0.1" value="${formatWeight(segment.weight)}" aria-label="权重" />
     `;
@@ -492,7 +501,6 @@ function createSegment(text, weight = 1) {
 function normalizeSegment(segment) {
   if (!segment) return null;
   const text = String(segment.text || "").trim();
-  if (!text) return null;
   return {
     id: segment.id || uid("seg"),
     text,
@@ -512,21 +520,25 @@ function formatWeight(weight) {
 }
 
 function formatSegment(segment) {
+  const text = String(segment.text || "").trim();
+  if (!text) return "";
   const weight = normalizeWeight(segment.weight);
-  if (Math.abs(weight - 1) < 0.001) return segment.text;
-  return `(${segment.text}:${formatWeight(weight)})`;
+  if (Math.abs(weight - 1) < 0.001) return text;
+  return `(${text}:${formatWeight(weight)})`;
 }
 
 function buildPrompt(kind) {
-  return state.prompts[kind].map(formatSegment).join(", ");
+  return state.prompts[kind].map(formatSegment).filter(Boolean).join(", ");
 }
 
 function buildChineseReference(kind) {
   return state.prompts[kind]
     .map((segment) => {
+      if (!String(segment.text || "").trim()) return "";
       if (hasChineseText(segment.text)) return segment.text;
       return getDictionaryChineseTranslation(segment.text) || segment.text;
     })
+    .filter(Boolean)
     .join("，");
 }
 
@@ -618,6 +630,144 @@ function handleSegmentInput(event, kind) {
   updatePromptOutput(kind);
 }
 
+function handleSegmentPointerDown(event, kind) {
+  if (event.button !== undefined && event.button !== 0) return;
+
+  const item = event.target.closest(".segment-item");
+  if (!item) return;
+
+  const segment = findSegment(kind, item.dataset.id);
+  if (!segment) return;
+
+  clearSegmentDragTimer();
+  segmentDragState = {
+    kind,
+    id: segment.id,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    started: false,
+    changed: false,
+    timer: window.setTimeout(startSegmentDrag, SEGMENT_DRAG_DELAY)
+  };
+}
+
+function handleSegmentPointerMove(event) {
+  if (!segmentDragState || event.pointerId !== segmentDragState.pointerId) return;
+
+  const distance = Math.hypot(event.clientX - segmentDragState.startX, event.clientY - segmentDragState.startY);
+  if (!segmentDragState.started) {
+    if (distance > SEGMENT_DRAG_TOLERANCE) cancelSegmentDrag();
+    return;
+  }
+
+  event.preventDefault();
+  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest(".segment-item");
+  if (!target) return;
+
+  const list = getSegmentList(segmentDragState.kind);
+  if (!list.contains(target)) return;
+
+  reorderSegmentByDrag(segmentDragState.kind, segmentDragState.id, target.dataset.id);
+}
+
+function handleSegmentPointerEnd(event) {
+  if (!segmentDragState || event.pointerId !== segmentDragState.pointerId) return;
+
+  const wasDragging = segmentDragState.started;
+  const changed = segmentDragState.changed;
+  clearSegmentDragTimer();
+  clearSegmentDragClasses();
+  segmentDragState = null;
+
+  if (wasDragging) {
+    event.preventDefault();
+    if (changed) {
+      saveState();
+      renderAll();
+      showToast("已调整分段顺序");
+    } else {
+      updateSegmentSelectionUi();
+    }
+  } else {
+    updateSegmentSelectionUi();
+  }
+}
+
+function startSegmentDrag() {
+  if (!segmentDragState) return;
+  const item = getSegmentItem(segmentDragState.kind, segmentDragState.id);
+  if (!item) {
+    cancelSegmentDrag();
+    return;
+  }
+
+  segmentDragState.started = true;
+  state.selected = { kind: segmentDragState.kind, id: segmentDragState.id };
+  document.body.classList.add("is-segment-dragging");
+  getSegmentList(segmentDragState.kind).classList.add("drag-active");
+  item.classList.add("dragging");
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  updateSegmentSelectionUi();
+  renderSelectedDetail();
+}
+
+function reorderSegmentByDrag(kind, draggedId, targetId) {
+  if (!targetId || draggedId === targetId) return;
+
+  const segments = state.prompts[kind];
+  const fromIndex = segments.findIndex((segment) => segment.id === draggedId);
+  const toIndex = segments.findIndex((segment) => segment.id === targetId);
+  if (fromIndex === -1 || toIndex === -1) return;
+
+  const [dragged] = segments.splice(fromIndex, 1);
+  segments.splice(toIndex, 0, dragged);
+  segmentDragState.changed = true;
+  state.selected = { kind, id: draggedId };
+  renderPromptArea(kind);
+  renderSelectedDetail();
+  getSegmentList(kind).classList.add("drag-active");
+  getSegmentItem(kind, draggedId)?.classList.add("dragging");
+}
+
+function cancelSegmentDrag() {
+  clearSegmentDragTimer();
+  clearSegmentDragClasses();
+  segmentDragState = null;
+}
+
+function clearSegmentDragTimer() {
+  if (segmentDragState?.timer) {
+    window.clearTimeout(segmentDragState.timer);
+    segmentDragState.timer = null;
+  }
+}
+
+function clearSegmentDragClasses() {
+  document.body.classList.remove("is-segment-dragging");
+  el.positiveSegments.classList.remove("drag-active");
+  el.negativeSegments.classList.remove("drag-active");
+  document.querySelectorAll(".segment-item.dragging").forEach((item) => item.classList.remove("dragging"));
+}
+
+function getSegmentList(kind) {
+  return kind === "positive" ? el.positiveSegments : el.negativeSegments;
+}
+
+function getSegmentItem(kind, id) {
+  return Array.from(getSegmentList(kind).querySelectorAll(".segment-item")).find((item) => item.dataset.id === id) || null;
+}
+
+function focusSegmentText(kind, id) {
+  window.requestAnimationFrame(() => {
+    const item = getSegmentItem(kind, id);
+    const input = item?.querySelector(".segment-text");
+    if (!input) return;
+    input.focus();
+    input.select();
+  });
+}
+
 function runSegmentAction(kind, id, action) {
   const segments = state.prompts[kind];
   const index = segments.findIndex((segment) => segment.id === id);
@@ -637,6 +787,17 @@ function runSegmentAction(kind, id, action) {
 
   if (action === "move-down" && index < segments.length - 1) {
     [segments[index + 1], segments[index]] = [segments[index], segments[index + 1]];
+  }
+
+  if (action === "insert-after") {
+    const blank = createSegment("", 1);
+    segments.splice(index + 1, 0, blank);
+    state.selected = { kind, id: blank.id };
+    saveState();
+    renderAll();
+    focusSegmentText(kind, blank.id);
+    showToast("已插入空白分段");
+    return;
   }
 
   if (action === "delete") {
