@@ -196,6 +196,8 @@ function bindCoreEvents() {
 
   document.getElementById("parsePositiveBtn").addEventListener("click", () => parsePromptFromInput("positive"));
   document.getElementById("parseNegativeBtn").addEventListener("click", () => parsePromptFromInput("negative"));
+  document.getElementById("appendPositiveBtn").addEventListener("click", () => appendPromptFromInput("positive"));
+  document.getElementById("appendNegativeBtn").addEventListener("click", () => appendPromptFromInput("negative"));
   document.getElementById("copyPositiveBtn").addEventListener("click", () => copyPrompt("positive"));
   document.getElementById("copyNegativeBtn").addEventListener("click", () => copyPrompt("negative"));
   document.getElementById("copyPositiveMergedBtn").addEventListener("click", () => copyPrompt("positive"));
@@ -411,11 +413,43 @@ function renderSelectedDetail() {
 function parsePromptFromInput(kind) {
   const input = kind === "positive" ? el.positiveInput : el.negativeInput;
   const segments = splitPrompt(input.value);
+  const label = kind === "positive" ? "正向提示词" : "负向提示词";
+
+  if (!segments.length) {
+    showToast("输入框里没有可分段的内容");
+    return;
+  }
+
+  if (!confirm(`重新分段会用输入框中的 ${segments.length} 个分段替换当前${label}的 ${state.prompts[kind].length} 个分段。\n\n确定继续吗？`)) {
+    return;
+  }
+
   state.prompts[kind] = segments;
   state.selected = segments[0] ? { kind, id: segments[0].id } : { kind, id: null };
   saveState();
   renderAll();
-  showToast(`已分成 ${segments.length} 段`);
+  showToast(`已重新分成 ${segments.length} 段`);
+}
+
+function appendPromptFromInput(kind) {
+  const input = kind === "positive" ? el.positiveInput : el.negativeInput;
+  const segments = splitPrompt(input.value);
+  const label = kind === "positive" ? "正向提示词" : "负向提示词";
+
+  if (!segments.length) {
+    showToast("输入框里没有可追加的分段");
+    return;
+  }
+
+  if (!confirm(`增加分段会保留当前${label}的 ${state.prompts[kind].length} 个分段，并在末尾追加输入框中的 ${segments.length} 个分段。\n\n确定继续吗？`)) {
+    return;
+  }
+
+  state.prompts[kind].push(...segments);
+  state.selected = { kind, id: segments[0].id };
+  saveState();
+  renderAll();
+  showToast(`已追加 ${segments.length} 段`);
 }
 
 function splitPrompt(text) {

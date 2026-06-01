@@ -169,12 +169,13 @@
               <span id="positiveCount" class="muted">0 段</span>
             </div>
             <div class="button-row compact">
-              <button id="parsePositiveBtn" type="button">分段</button>
+              <button id="parsePositiveBtn" type="button">重新分段</button>
+              <button id="appendPositiveBtn" type="button" class="secondary">增加分段</button>
               <button id="copyPositiveBtn" type="button" class="secondary">复制</button>
               <button id="clearPositiveBtn" type="button" class="danger">清空</button>
             </div>
           </div>
-          <textarea id="positiveInput" class="prompt-input" rows="4" placeholder="粘贴正向提示词，点击分段"></textarea>
+          <textarea id="positiveInput" class="prompt-input" rows="4" placeholder="粘贴正向提示词，可重新分段或追加分段"></textarea>
           <div class="segment-toolbar" data-kind="positive" aria-label="正向分段操作">
             <span id="positiveSelectedHint" class="segment-toolbar-label">未选中分段</span>
             <button type="button" class="secondary" data-action="weight-down" title="降低权重">权重-</button>
@@ -208,12 +209,13 @@
               <span id="negativeCount" class="muted">0 段</span>
             </div>
             <div class="button-row compact">
-              <button id="parseNegativeBtn" type="button">分段</button>
+              <button id="parseNegativeBtn" type="button">重新分段</button>
+              <button id="appendNegativeBtn" type="button" class="secondary">增加分段</button>
               <button id="copyNegativeBtn" type="button" class="secondary">复制</button>
               <button id="clearNegativeBtn" type="button" class="danger">清空</button>
             </div>
           </div>
-          <textarea id="negativeInput" class="prompt-input" rows="4" placeholder="粘贴负向提示词，点击分段"></textarea>
+          <textarea id="negativeInput" class="prompt-input" rows="4" placeholder="粘贴负向提示词，可重新分段或追加分段"></textarea>
           <div class="segment-toolbar" data-kind="negative" aria-label="负向分段操作">
             <span id="negativeSelectedHint" class="segment-toolbar-label">未选中分段</span>
             <button type="button" class="secondary" data-action="weight-down" title="降低权重">权重-</button>
