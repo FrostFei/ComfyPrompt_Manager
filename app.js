@@ -49,6 +49,7 @@ const el = {
   translateOutput: document.getElementById("translateOutput"),
   translateDirection: document.getElementById("translateDirection"),
   translateBtn: document.getElementById("translateBtn"),
+  retranslateBtn: document.getElementById("retranslateBtn"),
   showAiProcess: document.getElementById("showAiProcess"),
   enableDeepSeekThinking: document.getElementById("enableDeepSeekThinking"),
   aiProcessOutput: document.getElementById("aiProcessOutput"),
@@ -324,7 +325,8 @@ function bindCoreEvents() {
   el.importDataInput.addEventListener("change", importData);
   el.resetAllBtn.addEventListener("click", resetAllData);
 
-  el.translateBtn.addEventListener("click", translateCurrentInput);
+  el.translateBtn.addEventListener("click", () => translateCurrentInput());
+  el.retranslateBtn.addEventListener("click", () => translateCurrentInput({ forceAi: true, overwriteDictionary: true }));
 }
 
 function bindLibraryEvents() {
@@ -1642,10 +1644,16 @@ function renderCategoryOptions(select, categories) {
   select.value = unique.includes(current) ? current : "";
 }
 
-async function translateCurrentInput() {
+async function translateCurrentInput(options = {}) {
+  const forceAi = Boolean(options.forceAi);
+  const overwriteDictionary = Boolean(options.overwriteDictionary);
   const text = el.translateInput.value.trim();
   if (!text) {
     showToast("请输入要翻译的文本");
+    return;
+  }
+
+  if (overwriteDictionary && !confirm("重新翻译会跳过本地字典，强制 AI 翻译所有分段，并用结果覆盖对应字典词条。\n\n确定继续吗？")) {
     return;
   }
 
@@ -1657,8 +1665,15 @@ async function translateCurrentInput() {
   const parts = splitPrompt(text);
   const units = parts.length > 1 ? parts.map((part) => part.text) : [text];
   const translated = [];
+  const dictionaryGroupKey = overwriteDictionary ? "translation-overwrite" : "translation-cache";
 
-  appendProcessLine(`开始翻译：${getDirectionLabel(resolvedDirection)}${direction === "auto" ? "（自动识别）" : ""}`);
+  appendProcessLine(`开始${forceAi ? "重新" : ""}翻译：${getDirectionLabel(resolvedDirection)}${direction === "auto" ? "（自动识别）" : ""}`);
+  if (forceAi) {
+    appendProcessLine("重新翻译将跳过本地字典，所有分段都会交给 AI 处理。");
+  }
+  if (overwriteDictionary) {
+    appendProcessLine("翻译结果会覆盖对应的字典词条。");
+  }
   appendProcessLine(`共 ${units.length} 个分段。`);
 
   try {
@@ -1672,11 +1687,14 @@ async function translateCurrentInput() {
           liveText += token;
           el.translateOutput.value = joinTranslatedUnits(parts, [...translated, liveText]);
         }
-      });
+      }, { forceAi });
       translated.push(translatedUnit);
       el.translateOutput.value = joinTranslatedUnits(parts, translated);
-      if (state.settings.provider !== "mock") {
-        cacheTranslationPair(unit, translatedUnit, resolvedDirection, { onLog: appendProcessLine });
+      if (overwriteDictionary || state.settings.provider !== "mock") {
+        cacheTranslationPair(unit, translatedUnit, resolvedDirection, { onLog: appendProcessLine }, {
+          groupKey: dictionaryGroupKey,
+          overwrite: overwriteDictionary
+        });
       }
     }
     saveState();
@@ -1684,13 +1702,13 @@ async function translateCurrentInput() {
     renderDictionary();
     renderPromptArea("positive");
     renderPromptArea("negative");
-    finishUndoGroup("translation-cache");
-    appendProcessLine("翻译完成。");
+    finishUndoGroup(dictionaryGroupKey);
+    appendProcessLine(forceAi ? "重新翻译完成。" : "翻译完成。");
   } catch (error) {
-    finishUndoGroup("translation-cache");
+    finishUndoGroup(dictionaryGroupKey);
     console.error(error);
     el.translateOutput.value = getFriendlyErrorMessage(error);
-    showToast("翻译失败");
+    showToast(forceAi ? "重新翻译失败" : "翻译失败");
   }
 }
 
@@ -1725,21 +1743,27 @@ function getDirectionLabel(direction) {
   return direction === "zh-en" ? "中文 → 英文" : "英文 → 中文";
 }
 
-async function translateText(text, direction, callbacks = {}) {
-  if (isAlreadyTargetLanguage(text, direction)) {
+async function translateText(text, direction, callbacks = {}, options = {}) {
+  const forceAi = Boolean(options.forceAi);
+  if (!forceAi && isAlreadyTargetLanguage(text, direction)) {
     callbacks.onLog?.("该分段已是目标语言，直接保留。");
     callbacks.onContent?.(text);
     return text;
   }
 
-  callbacks.onLog?.("正在查找本地字典...");
-  const local = lookupDictionary(text, direction);
-  if (local) {
-    callbacks.onLog?.(`字典命中：${local}`);
-    callbacks.onContent?.(local);
-    return local;
+  if (!forceAi) {
+    callbacks.onLog?.("正在查找本地字典...");
+    const local = lookupDictionary(text, direction);
+    if (local) {
+      callbacks.onLog?.(`字典命中：${local}`);
+      callbacks.onContent?.(local);
+      return local;
+    }
+    callbacks.onLog?.("字典未命中，准备调用 AI。");
+  } else {
+    callbacks.onLog?.("跳过本地字典，准备调用 AI。");
   }
-  callbacks.onLog?.("字典未命中，准备调用 AI。");
+
   return requestAiTranslation(text, direction, { ...state.settings }, callbacks);
 }
 
@@ -1799,10 +1823,12 @@ function updateSegmentTranslationCell(item, text) {
   translationNode.title = translation ? `中文翻译：${translation}` : "";
 }
 
-function cacheTranslationPair(sourceText, translatedText, direction, callbacks = {}) {
+function cacheTranslationPair(sourceText, translatedText, direction, callbacks = {}, options = {}) {
   const source = String(sourceText || "").trim();
   const translated = String(translatedText || "").trim();
   if (!source || !translated || source === translated) return false;
+  const overwrite = Boolean(options.overwrite);
+  const groupKey = options.groupKey || (overwrite ? "translation-overwrite" : "translation-cache");
 
   const pair =
     direction === "zh-en"
@@ -1820,42 +1846,53 @@ function cacheTranslationPair(sourceText, translatedText, direction, callbacks =
   const item = normalizeDictionaryItem({
     chinese: pair.chinese,
     english: pair.english,
-    category: "翻译缓存",
+    category: overwrite ? "重新翻译" : "翻译缓存",
     aliases: "",
-    note: "由翻译功能自动保存"
+    note: overwrite ? "由重新翻译功能覆盖保存" : "由翻译功能自动保存"
   });
 
   const undoLength = undoStack.length;
-  const pushedUndo = captureUndoStep("translation-cache");
-  const changed = upsertDictionaryPair(item);
+  const pushedUndo = captureUndoStep(groupKey);
+  const changed = upsertDictionaryPair(item, { overwrite, direction });
   if (changed) {
     saveState();
-    callbacks.onLog?.(`已写入字典：${item.chinese} / ${item.english}`);
+    callbacks.onLog?.(`${overwrite ? "已覆盖" : "已写入"}字典：${item.chinese} / ${item.english}`);
   } else {
     if (pushedUndo && undoStack.length > undoLength) {
       undoStack.pop();
-      finishUndoGroup("translation-cache");
+      finishUndoGroup(groupKey);
       updateUndoControl();
     }
-    callbacks.onLog?.("字典已有相同对照，跳过保存。");
+    callbacks.onLog?.(overwrite ? "字典对照已是最新，跳过覆盖。" : "字典已有相同对照，跳过保存。");
   }
   return changed;
 }
 
-function upsertDictionaryPair(item) {
+function upsertDictionaryPair(item, options = {}) {
   if (!item) return false;
-  const chineseKey = normalizeSearch(item.chinese);
-  const englishKey = normalizeSearch(item.english);
-
-  const existing = state.dictionary.find((entry) => {
-    const sameChinese = chineseKey && normalizeSearch(entry.chinese) === chineseKey;
-    const sameEnglish = englishKey && normalizeSearch(entry.english) === englishKey;
-    return sameChinese || sameEnglish;
-  });
+  const overwrite = Boolean(options.overwrite);
+  const existing = findDictionaryPair(item, options.direction);
 
   if (!existing) {
     state.dictionary.unshift(item);
     return true;
+  }
+
+  if (overwrite) {
+    let changed = false;
+    if (existing.chinese !== item.chinese) {
+      existing.chinese = item.chinese;
+      changed = true;
+    }
+    if (existing.english !== item.english) {
+      existing.english = item.english;
+      changed = true;
+    }
+    if (!existing.category && item.category) {
+      existing.category = item.category;
+      changed = true;
+    }
+    return changed;
   }
 
   let changed = false;
@@ -1876,6 +1913,30 @@ function upsertDictionaryPair(item) {
     changed = true;
   }
   return changed;
+}
+
+function findDictionaryPair(item, direction) {
+  const chineseKey = normalizeSearch(item.chinese);
+  const englishKey = normalizeSearch(item.english);
+
+  const matchesChinese = (entry) => chineseKey && normalizeSearch(entry.chinese) === chineseKey;
+  const matchesEnglish = (entry) => englishKey && normalizeSearch(entry.english) === englishKey;
+
+  if (direction === "zh-en") {
+    const bySource = state.dictionary.find(matchesChinese);
+    if (bySource) return bySource;
+  }
+
+  if (direction === "en-zh") {
+    const bySource = state.dictionary.find(matchesEnglish);
+    if (bySource) return bySource;
+  }
+
+  return state.dictionary.find((entry) => {
+    const sameChinese = chineseKey && normalizeSearch(entry.chinese) === chineseKey;
+    const sameEnglish = englishKey && normalizeSearch(entry.english) === englishKey;
+    return sameChinese || sameEnglish;
+  });
 }
 
 function isAlreadyTargetLanguage(text, direction) {

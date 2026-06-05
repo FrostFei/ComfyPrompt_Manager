@@ -278,6 +278,7 @@
               <option value="en-zh">英文 → 中文</option>
             </select>
             <button id="translateBtn" type="button">翻译</button>
+            <button id="retranslateBtn" type="button" class="secondary" title="跳过本地字典，强制 AI 翻译并覆盖对应字典词条">重新翻译</button>
           </div>
           <label>
             结果
@@ -295,7 +296,7 @@
           </div>
           <label>
             AI 过程
-            <textarea id="aiProcessOutput" rows="7" readonly placeholder="翻译时会显示本地字典命中、API 请求进度，以及 DeepSeek 返回的 reasoning_content。"></textarea>
+            <textarea id="aiProcessOutput" rows="7" readonly placeholder="翻译时会显示本地字典命中、API 请求进度，以及 DeepSeek 返回的 reasoning_content。重新翻译会跳过本地字典并覆盖对应词条。"></textarea>
           </label>
         </section>
 
