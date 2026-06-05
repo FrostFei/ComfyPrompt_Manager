@@ -76,6 +76,7 @@ const el = {
   libraryForm: document.getElementById("libraryForm"),
   libraryEditId: document.getElementById("libraryEditId"),
   libraryTitle: document.getElementById("libraryTitle"),
+  autoNameLibraryBtn: document.getElementById("autoNameLibraryBtn"),
   libraryPrompt: document.getElementById("libraryPrompt"),
   libraryCategory: document.getElementById("libraryCategory"),
   libraryTags: document.getElementById("libraryTags"),
@@ -88,6 +89,7 @@ const el = {
   templateForm: document.getElementById("templateForm"),
   templateEditId: document.getElementById("templateEditId"),
   templateName: document.getElementById("templateName"),
+  autoNameTemplateBtn: document.getElementById("autoNameTemplateBtn"),
   templateTags: document.getElementById("templateTags"),
   templateNote: document.getElementById("templateNote"),
   templatePositive: document.getElementById("templatePositive"),
@@ -356,6 +358,7 @@ function bindCoreEvents() {
 
 function bindLibraryEvents() {
   el.libraryForm.addEventListener("submit", saveLibraryItem);
+  el.autoNameLibraryBtn.addEventListener("click", autoNameLibraryItem);
   el.libraryCancelBtn.addEventListener("click", resetLibraryForm);
   el.librarySearch.addEventListener("input", renderLibrary);
   el.libraryCategoryFilter.addEventListener("change", renderLibrary);
@@ -364,6 +367,7 @@ function bindLibraryEvents() {
 
 function bindTemplateEvents() {
   el.templateForm.addEventListener("submit", saveTemplate);
+  el.autoNameTemplateBtn.addEventListener("click", autoNameTemplate);
   el.templateCancelBtn.addEventListener("click", resetTemplateForm);
   el.fillTemplateFromCurrentBtn.addEventListener("click", fillTemplateFromCurrent);
   el.templateSearch.addEventListener("input", renderTemplates);
@@ -1291,6 +1295,32 @@ function saveLibraryItem(event) {
   showToast("提示词已保存");
 }
 
+async function autoNameLibraryItem() {
+  const source = {
+    kind: "library",
+    prompt: el.libraryPrompt.value,
+    category: el.libraryCategory.value,
+    tags: el.libraryTags.value,
+    note: el.libraryNote.value
+  };
+
+  if (!String(source.prompt || "").trim()) {
+    showToast("请先填写提示词内容");
+    el.libraryPrompt.focus();
+    return;
+  }
+
+  await fillAiGeneratedName({
+    source,
+    input: el.libraryTitle,
+    button: el.autoNameLibraryBtn,
+    loadingText: "起名中",
+    overwriteConfirm: "标题已有内容，是否用 AI 起名覆盖？",
+    successMessage: "已生成提示词标题",
+    failMessage: "提示词起名失败"
+  });
+}
+
 function normalizeLibraryItem(item) {
   if (!item) return null;
   const legacyPrompt = String(item.english || item.chinese || "").trim();
@@ -1441,6 +1471,32 @@ function saveTemplate(event) {
   saveState();
   renderTemplates();
   showToast("模板已保存");
+}
+
+async function autoNameTemplate() {
+  const source = {
+    kind: "template",
+    positive: el.templatePositive.value,
+    negative: el.templateNegative.value,
+    tags: el.templateTags.value,
+    note: el.templateNote.value
+  };
+
+  if (!String(`${source.positive || ""}${source.negative || ""}`).trim()) {
+    showToast("请先填写模板提示词");
+    el.templatePositive.focus();
+    return;
+  }
+
+  await fillAiGeneratedName({
+    source,
+    input: el.templateName,
+    button: el.autoNameTemplateBtn,
+    loadingText: "起名中",
+    overwriteConfirm: "模板名称已有内容，是否用 AI 起名覆盖？",
+    successMessage: "已生成模板名称",
+    failMessage: "模板起名失败"
+  });
 }
 
 function normalizeTemplate(item) {
@@ -2395,6 +2451,74 @@ function hasEnglishText(text) {
   return /[A-Za-z]/.test(String(text || ""));
 }
 
+async function fillAiGeneratedName(options) {
+  const currentName = String(options.input.value || "").trim();
+  if (currentName && options.overwriteConfirm && !confirm(options.overwriteConfirm)) return false;
+
+  syncSettingsFromInputs();
+  if (OPENAI_COMPATIBLE_PROVIDERS.includes(state.settings.provider) && !String(state.settings.apiKey || "").trim()) {
+    showToast("请先输入 AI API Key");
+    return false;
+  }
+
+  const originalText = options.button.textContent;
+  options.button.disabled = true;
+  options.button.textContent = options.loadingText || "起名中";
+  resetAiProcess();
+  appendProcessLine("开始生成名称。");
+
+  try {
+    const rawName = await requestAiNameSuggestion(options.source, { ...state.settings }, {
+      onLog: appendProcessLine,
+      onReasoning: appendReasoningToken
+    });
+    const name = normalizeGeneratedName(rawName);
+    if (!name) {
+      return fillFallbackGeneratedName(options, "AI 未返回可用名称，已使用本地起名。");
+    }
+
+    options.input.value = name;
+    options.input.focus();
+    options.input.select();
+    appendProcessLine(`名称生成完成：${name}`);
+    showToast(options.successMessage || "已生成名称");
+    return true;
+  } catch (error) {
+    console.error(error);
+    appendProcessLine(getFriendlyErrorMessage(error));
+    return fillFallbackGeneratedName(options, "AI 起名被拒绝或失败，已使用本地起名。");
+  } finally {
+    options.button.disabled = false;
+    options.button.textContent = originalText;
+  }
+}
+
+function fillFallbackGeneratedName(options, message) {
+  const fallbackName = normalizeGeneratedName(getMockGeneratedName(options.source));
+  if (!fallbackName) {
+    showToast(options.failMessage || "AI 起名失败");
+    appendProcessLine("本地起名也没有生成可用名称。");
+    return false;
+  }
+
+  options.input.value = fallbackName;
+  options.input.focus();
+  options.input.select();
+  appendProcessLine(`${message}名称：${fallbackName}`);
+  showToast("已使用本地起名");
+  return true;
+}
+
+async function requestAiNameSuggestion(source, settings, callbacks = {}) {
+  if (OPENAI_COMPATIBLE_PROVIDERS.includes(settings.provider)) {
+    return requestOpenAiCompatibleNameSuggestion(source, settings, callbacks);
+  }
+
+  await new Promise((resolve) => window.setTimeout(resolve, 180));
+  callbacks.onLog?.("当前 Provider 是 Mock，使用本地模拟起名。");
+  return getMockGeneratedName(source);
+}
+
 async function requestAiTranslation(text, direction, settings, callbacks = {}) {
   if (OPENAI_COMPATIBLE_PROVIDERS.includes(settings.provider)) {
     return requestOpenAiCompatibleTranslation(text, direction, settings, callbacks);
@@ -2476,6 +2600,145 @@ function getDictionaryRetryChunkSize(count) {
   return DICTIONARY_CLASSIFY_RETRY_BATCH_SIZE;
 }
 
+function buildNameSuggestionPayload(source) {
+  const positiveText = source.kind === "template" ? source.positive : source.prompt;
+  const negativeText = source.kind === "template" ? source.negative : "";
+  const summary = buildSafeNameSummary(positiveText, negativeText);
+  const userHints = extractSafeNameKeywords([source.category, source.tags, source.note].filter(Boolean).join("，"), 8);
+
+  if (source.kind === "template") {
+    return {
+      type: "template",
+      content_summary: summary,
+      user_hints: userHints
+    };
+  }
+
+  return {
+    type: "library",
+    content_summary: summary,
+    user_hints: userHints
+  };
+}
+
+function buildSafeNameSummary(positiveText, negativeText = "") {
+  const positiveSegments = splitPrompt(positiveText);
+  const negativeSegments = splitPrompt(negativeText);
+  return {
+    positive_terms: extractSafeNameKeywords(positiveText, 18),
+    negative_terms: extractSafeNameKeywords(negativeText, 8),
+    theme_tags: getSafeNameThemeTags(`${positiveText || ""}, ${negativeText || ""}`),
+    positive_count: positiveSegments.length,
+    negative_count: negativeSegments.length
+  };
+}
+
+function extractSafeNameKeywords(text, limit = 16) {
+  const seen = new Set();
+  const keywords = [];
+  splitPrompt(text).forEach((segment) => {
+    const keyword = normalizeSafeNameKeyword(segment.text);
+    if (!keyword || seen.has(keyword) || isUnsafeNameKeyword(keyword)) return;
+    seen.add(keyword);
+    keywords.push(keyword);
+  });
+  return keywords.slice(0, limit);
+}
+
+function normalizeSafeNameKeyword(value) {
+  return String(value || "")
+    .trim()
+    .replace(/<[^>]+>/g, "")
+    .replace(/^\(+|\)+$/g, "")
+    .replace(/:[\d.]+$/g, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/[^\u4e00-\u9fffA-Za-z0-9 ]/g, "")
+    .trim()
+    .slice(0, 32);
+}
+
+function isUnsafeNameKeyword(value) {
+  const text = normalizeSearch(value).replace(/\s+/g, " ");
+  if (!text) return true;
+  return /\b(erotic|nsfw|nude|naked|sex|sexual|seductive|climax|orgasm|pussy|vagina|penis|nipple|nipples|breast|breasts|groin|cameltoe|panty|panties|underwear|ass|butt|bdsm|bondage|cum)\b|spread legs|legs spread|裸体|裸露|裸|色情|情色|性感|性|挑逗|诱惑|高潮|阴部|私处|乳头|乳房|胸部|巨乳|臀|腹股沟|内裤|胖次|拘束/.test(text);
+}
+
+function getSafeNameThemeTags(text) {
+  const haystack = normalizeSearch(text);
+  const tags = [];
+  const rules = [
+    ["发型外观", ["hair", "bangs", "ponytail", "braid", "白发", "头发", "刘海", "辫"]],
+    ["人物姿势", ["pose", "standing", "sitting", "lying", "kneeling", "姿势", "站", "坐", "躺", "跪"]],
+    ["服装搭配", ["dress", "skirt", "shirt", "uniform", "serafuku", "ribbon", "bow", "服装", "裙", "制服", "水手服", "蝴蝶结"]],
+    ["表情氛围", ["smile", "blush", "expression", "eyes", "face", "表情", "微笑", "脸红", "眼"]],
+    ["场景背景", ["background", "room", "bed", "street", "forest", "sky", "背景", "房间", "街道", "森林", "天空"]],
+    ["光影构图", ["light", "shadow", "glow", "backlight", "camera", "close up", "光", "影", "构图", "镜头"]],
+    ["画质增强", ["masterpiece", "best quality", "high quality", "detailed", "杰作", "高质量", "精细"]],
+    ["负面修复", ["worst quality", "bad anatomy", "blurry", "extra", "低质量", "模糊", "错误"]]
+  ];
+
+  rules.forEach(([tag, matches]) => {
+    if (matches.some((match) => haystack.includes(match))) tags.push(tag);
+  });
+  return tags.slice(0, 5);
+}
+
+function parseAiNameResponse(content) {
+  const text = String(content || "").trim();
+  if (isAiNameRefusal(text)) return "";
+  const withoutFence = text.replace(/^```(?:json)?\s*/i, "").replace(/```$/i, "").trim();
+  const payload = tryParseDictionaryCategoryJson(withoutFence) || tryParseDictionaryCategoryJson(extractJsonObject(withoutFence));
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) return payload.name || payload.title || payload.label || "";
+  return withoutFence;
+}
+
+function normalizeGeneratedName(value) {
+  const text = String(value || "");
+  if (isAiNameRefusal(text)) return "";
+  return text
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/^(名称|标题|name|title)\s*[:：]\s*/i, "")
+    .replace(/[。.;；，,\n\r]+$/g, "")
+    .replace(/\s+/g, "")
+    .slice(0, 18);
+}
+
+function isAiNameRefusal(value) {
+  return /抱歉|无法|不能|不便|拒绝|违规|敏感|安全|政策|sorry|cannot|can't|unable|policy|safety|not able/i.test(String(value || ""));
+}
+
+function getMockGeneratedName(source) {
+  const text = normalizeSearch([
+    source.prompt,
+    source.positive,
+    source.negative,
+    source.category,
+    source.tags,
+    source.note
+  ].filter(Boolean).join(" "));
+  const keywords = [];
+  const rules = [
+    ["白发", ["white hair", "白发", "银发"]],
+    ["全身", ["full body", "全身"]],
+    ["人像", ["portrait", "face", "人像", "头像"]],
+    ["制服", ["uniform", "serafuku", "制服", "水手服"]],
+    ["动态姿势", ["pose", "standing", "sitting", "kneeling", "姿势", "站", "坐", "跪"]],
+    ["表情", ["smile", "blush", "expression", "表情", "微笑", "脸红"]],
+    ["光影", ["light", "shadow", "glow", "光", "影", "发光"]],
+    ["高质量", ["masterpiece", "best quality", "high quality", "杰作", "高质量"]],
+    ["负面", ["worst quality", "bad anatomy", "blurry", "低质量", "模糊"]]
+  ];
+
+  rules.forEach(([label, matches]) => {
+    if (keywords.length < 3 && matches.some((match) => text.includes(match))) keywords.push(label);
+  });
+
+  const prefix = keywords.join("") || String(source.category || source.tags || "").split(/[，,]/)[0].trim() || "综合";
+  return normalizeGeneratedName(`${prefix}${source.kind === "template" ? "模板" : "词组"}`);
+}
+
 async function requestOpenAiCompatibleTranslation(text, direction, settings, callbacks = {}) {
   const apiKey = String(settings.apiKey || "").trim();
   if (!apiKey) throw new Error("请先输入 DeepSeek API Key。");
@@ -2536,6 +2799,58 @@ async function requestOpenAiCompatibleTranslation(text, direction, settings, cal
   const content = await readStreamingChatCompletion(response, callbacks);
   if (!content) throw new Error("DeepSeek 没有返回可用翻译结果。");
   return content;
+}
+
+async function requestOpenAiCompatibleNameSuggestion(source, settings, callbacks = {}) {
+  const apiKey = String(settings.apiKey || "").trim();
+  if (!apiKey) throw new Error("请先输入 DeepSeek API Key。");
+
+  const endpoint = String(settings.endpoint || DEFAULT_SETTINGS.endpoint).trim();
+  const model = String(settings.model || DEFAULT_SETTINGS.model).trim();
+  const url = buildChatCompletionsUrl(endpoint);
+  const body = {
+    model,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You create concise, neutral Chinese names from sanitized metadata for image prompt libraries and templates. The input has already removed sensitive raw prompt text, so do not infer, mention, or recreate sensitive details. Return only valid JSON in the form {\"name\":\"名称\"}. The name should be 4 to 12 Chinese characters when possible, specific to the safe theme tags, and should not include punctuation, quotes, explanations, or generic words like unnamed."
+      },
+      {
+        role: "user",
+        content: `请只根据以下已脱敏摘要，为这个${source.kind === "template" ? "模板库模板" : "提示词库词组"}起一个中性中文名。只返回 JSON，不要补充说明：\n${JSON.stringify(buildNameSuggestionPayload(source), null, 2)}`
+      }
+    ],
+    max_tokens: 160,
+    stream: true,
+    temperature: 0.2
+  };
+
+  if (settings.provider === "deepseek") {
+    body.thinking = { type: "disabled" };
+    callbacks.onLog?.("DeepSeek 起名使用快速模式，要求直接返回 JSON。");
+  }
+
+  callbacks.onLog?.(`请求：${url}`);
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const payload = await safeReadJson(response);
+    const message = payload?.error?.message || payload?.message || `HTTP ${response.status}`;
+    throw new Error(`AI 起名请求失败：${message}`);
+  }
+
+  const content = await readStreamingChatCompletion(response, callbacks);
+  if (!content) throw new Error("AI 没有返回可用名称。");
+  return parseAiNameResponse(content);
 }
 
 async function requestOpenAiCompatibleDictionaryCategories(items, settings, callbacks = {}) {

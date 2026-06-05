@@ -37,7 +37,10 @@
               <input id="libraryEditId" type="hidden" />
               <label>
                 标题
-                <input id="libraryTitle" type="text" placeholder="例如：写实人像基础词组" />
+                <div class="input-action-row">
+                  <input id="libraryTitle" type="text" placeholder="例如：写实人像基础词组" />
+                  <button id="autoNameLibraryBtn" type="button" class="secondary" title="根据提示词内容自动起名">AI 起名</button>
+                </div>
               </label>
               <label>
                 提示词内容
@@ -79,7 +82,10 @@
               <input id="templateEditId" type="hidden" />
               <label>
                 模板名称
-                <input id="templateName" type="text" placeholder="例如：写实人像基础模板" />
+                <div class="input-action-row">
+                  <input id="templateName" type="text" placeholder="例如：写实人像基础模板" />
+                  <button id="autoNameTemplateBtn" type="button" class="secondary" title="根据模板内容自动起名">AI 起名</button>
+                </div>
               </label>
               <div class="two-col">
                 <label>
