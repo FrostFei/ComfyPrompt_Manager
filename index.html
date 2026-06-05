@@ -173,34 +173,52 @@
         </nav>
 
         <section class="panel editor-panel active" data-kind="positive">
-          <div class="panel-title">
-            <div>
-              <h2>正向提示词</h2>
-              <span id="positiveCount" class="muted">0 段</span>
+          <section class="editor-region prompt-input-region" aria-labelledby="positiveInputRegionTitle">
+            <div class="editor-region-head">
+              <div class="editor-region-title">
+                <span class="editor-region-label">提示词输入区</span>
+                <div class="editor-title-row">
+                  <h2 id="positiveInputRegionTitle">正向提示词</h2>
+                  <span id="positiveCount" class="muted">0 段</span>
+                </div>
+              </div>
+              <div class="button-row compact region-actions">
+                <button id="parsePositiveBtn" type="button">重新分段</button>
+                <button id="appendPositiveBtn" type="button" class="secondary">增加分段</button>
+                <button id="copyPositiveBtn" type="button" class="secondary">复制</button>
+                <button id="clearPositiveBtn" type="button" class="danger">清空</button>
+              </div>
             </div>
-            <div class="button-row compact">
-              <button id="parsePositiveBtn" type="button">重新分段</button>
-              <button id="appendPositiveBtn" type="button" class="secondary">增加分段</button>
-              <button id="copyPositiveBtn" type="button" class="secondary">复制</button>
-              <button id="clearPositiveBtn" type="button" class="danger">清空</button>
+            <textarea id="positiveInput" class="prompt-input" rows="4" placeholder="粘贴正向提示词，可重新分段或追加分段"></textarea>
+          </section>
+
+          <section class="editor-region segment-region" aria-labelledby="positiveSegmentRegionTitle">
+            <div class="editor-region-head segment-region-head">
+              <div class="editor-region-title">
+                <span class="editor-region-label">分段词汇操作区</span>
+                <h3 id="positiveSegmentRegionTitle">分段词汇</h3>
+              </div>
+              <span id="positiveSelectedHint" class="segment-toolbar-label">未选中分段</span>
             </div>
-          </div>
-          <textarea id="positiveInput" class="prompt-input" rows="4" placeholder="粘贴正向提示词，可重新分段或追加分段"></textarea>
-          <div class="segment-toolbar" data-kind="positive" aria-label="正向分段操作">
-            <span id="positiveSelectedHint" class="segment-toolbar-label">未选中分段</span>
-            <button type="button" class="secondary" data-action="weight-down" title="降低权重">权重-</button>
-            <button type="button" class="secondary" data-action="weight-up" title="增加权重">权重+</button>
-            <button type="button" class="secondary" data-action="move-up" title="上移">上移</button>
-            <button type="button" class="secondary" data-action="move-down" title="下移">下移</button>
-            <button type="button" class="secondary" data-action="insert-after" title="在当前分段后插入空白词">插入</button>
-            <button type="button" class="secondary" data-action="add-dictionary" title="加入字典">入字典</button>
-            <button type="button" class="danger" data-action="delete" title="删除">删除</button>
-          </div>
-          <ul id="positiveSegments" class="segment-list" aria-label="正向提示词分段"></ul>
-          <section class="merged-output">
-            <div class="merged-output-head">
-              <strong>合并结果</strong>
-              <div class="button-row compact">
+            <div class="segment-toolbar" data-kind="positive" aria-label="正向分段操作">
+              <button type="button" class="secondary" data-action="weight-down" title="降低权重">权重-</button>
+              <button type="button" class="secondary" data-action="weight-up" title="增加权重">权重+</button>
+              <button type="button" class="secondary" data-action="move-up" title="上移">上移</button>
+              <button type="button" class="secondary" data-action="move-down" title="下移">下移</button>
+              <button type="button" class="secondary" data-action="insert-after" title="在当前分段后插入空白词">插入</button>
+              <button type="button" class="secondary" data-action="add-dictionary" title="加入字典">入字典</button>
+              <button type="button" class="danger" data-action="delete" title="删除">删除</button>
+            </div>
+            <ul id="positiveSegments" class="segment-list" aria-label="正向提示词分段"></ul>
+          </section>
+
+          <section class="editor-region output-region merged-output" aria-labelledby="positiveOutputRegionTitle">
+            <div class="editor-region-head merged-output-head">
+              <div class="editor-region-title">
+                <span class="editor-region-label">合并结果区</span>
+                <h3 id="positiveOutputRegionTitle">合并结果</h3>
+              </div>
+              <div class="button-row compact region-actions">
                 <button id="copyPositiveMergedBtn" type="button" class="secondary">复制提示词</button>
                 <button id="copyPositiveChineseBtn" type="button" class="secondary">复制中文</button>
               </div>
@@ -214,34 +232,52 @@
         </section>
 
         <section class="panel editor-panel" data-kind="negative">
-          <div class="panel-title">
-            <div>
-              <h2>负向提示词</h2>
-              <span id="negativeCount" class="muted">0 段</span>
+          <section class="editor-region prompt-input-region" aria-labelledby="negativeInputRegionTitle">
+            <div class="editor-region-head">
+              <div class="editor-region-title">
+                <span class="editor-region-label">提示词输入区</span>
+                <div class="editor-title-row">
+                  <h2 id="negativeInputRegionTitle">负向提示词</h2>
+                  <span id="negativeCount" class="muted">0 段</span>
+                </div>
+              </div>
+              <div class="button-row compact region-actions">
+                <button id="parseNegativeBtn" type="button">重新分段</button>
+                <button id="appendNegativeBtn" type="button" class="secondary">增加分段</button>
+                <button id="copyNegativeBtn" type="button" class="secondary">复制</button>
+                <button id="clearNegativeBtn" type="button" class="danger">清空</button>
+              </div>
             </div>
-            <div class="button-row compact">
-              <button id="parseNegativeBtn" type="button">重新分段</button>
-              <button id="appendNegativeBtn" type="button" class="secondary">增加分段</button>
-              <button id="copyNegativeBtn" type="button" class="secondary">复制</button>
-              <button id="clearNegativeBtn" type="button" class="danger">清空</button>
+            <textarea id="negativeInput" class="prompt-input" rows="4" placeholder="粘贴负向提示词，可重新分段或追加分段"></textarea>
+          </section>
+
+          <section class="editor-region segment-region" aria-labelledby="negativeSegmentRegionTitle">
+            <div class="editor-region-head segment-region-head">
+              <div class="editor-region-title">
+                <span class="editor-region-label">分段词汇操作区</span>
+                <h3 id="negativeSegmentRegionTitle">分段词汇</h3>
+              </div>
+              <span id="negativeSelectedHint" class="segment-toolbar-label">未选中分段</span>
             </div>
-          </div>
-          <textarea id="negativeInput" class="prompt-input" rows="4" placeholder="粘贴负向提示词，可重新分段或追加分段"></textarea>
-          <div class="segment-toolbar" data-kind="negative" aria-label="负向分段操作">
-            <span id="negativeSelectedHint" class="segment-toolbar-label">未选中分段</span>
-            <button type="button" class="secondary" data-action="weight-down" title="降低权重">权重-</button>
-            <button type="button" class="secondary" data-action="weight-up" title="增加权重">权重+</button>
-            <button type="button" class="secondary" data-action="move-up" title="上移">上移</button>
-            <button type="button" class="secondary" data-action="move-down" title="下移">下移</button>
-            <button type="button" class="secondary" data-action="insert-after" title="在当前分段后插入空白词">插入</button>
-            <button type="button" class="secondary" data-action="add-dictionary" title="加入字典">入字典</button>
-            <button type="button" class="danger" data-action="delete" title="删除">删除</button>
-          </div>
-          <ul id="negativeSegments" class="segment-list" aria-label="负向提示词分段"></ul>
-          <section class="merged-output">
-            <div class="merged-output-head">
-              <strong>合并结果</strong>
-              <div class="button-row compact">
+            <div class="segment-toolbar" data-kind="negative" aria-label="负向分段操作">
+              <button type="button" class="secondary" data-action="weight-down" title="降低权重">权重-</button>
+              <button type="button" class="secondary" data-action="weight-up" title="增加权重">权重+</button>
+              <button type="button" class="secondary" data-action="move-up" title="上移">上移</button>
+              <button type="button" class="secondary" data-action="move-down" title="下移">下移</button>
+              <button type="button" class="secondary" data-action="insert-after" title="在当前分段后插入空白词">插入</button>
+              <button type="button" class="secondary" data-action="add-dictionary" title="加入字典">入字典</button>
+              <button type="button" class="danger" data-action="delete" title="删除">删除</button>
+            </div>
+            <ul id="negativeSegments" class="segment-list" aria-label="负向提示词分段"></ul>
+          </section>
+
+          <section class="editor-region output-region merged-output" aria-labelledby="negativeOutputRegionTitle">
+            <div class="editor-region-head merged-output-head">
+              <div class="editor-region-title">
+                <span class="editor-region-label">合并结果区</span>
+                <h3 id="negativeOutputRegionTitle">合并结果</h3>
+              </div>
+              <div class="button-row compact region-actions">
                 <button id="copyNegativeMergedBtn" type="button" class="secondary">复制提示词</button>
                 <button id="copyNegativeChineseBtn" type="button" class="secondary">复制中文</button>
               </div>
