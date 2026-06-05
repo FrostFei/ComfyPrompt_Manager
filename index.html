@@ -10,14 +10,14 @@
     <header class="app-header">
       <div>
         <h1>ComfyUI 提示词整理工具</h1>
-        <p>本地运行 · LocalStorage 保存 · JSON 导入导出</p>
+        <p>本地运行 · 自动保存 · JSON 备份不含 API Key</p>
       </div>
       <div class="header-actions">
         <button id="undoBtn" type="button" class="secondary" disabled title="暂无可撤回步骤，最多保留 20 步">撤回</button>
-        <button id="exportDataBtn" type="button">导出 JSON</button>
+        <button id="exportDataBtn" type="button" title="导出提示词、模板、字典和设置，不包含 API Key">导出 JSON</button>
         <label class="file-button">
           导入 JSON
-          <input id="importDataInput" type="file" accept="application/json,.json" />
+          <input id="importDataInput" type="file" accept="application/json,.json" title="导入提示词、模板、字典和设置，不覆盖 API Key" />
         </label>
         <button id="resetAllBtn" type="button" class="danger">清空数据</button>
       </div>
@@ -97,7 +97,7 @@
               <textarea id="templateNegative" rows="3"></textarea>
             </label>
             <div class="button-row">
-              <button type="button" id="fillTemplateFromCurrentBtn" class="secondary">填入当前</button>
+              <button type="button" id="fillTemplateFromCurrentBtn" class="secondary">从当前分段填入</button>
               <button type="submit">保存模板</button>
               <button id="templateCancelBtn" type="button" class="secondary">取消编辑</button>
             </div>
@@ -139,7 +139,7 @@
             </div>
           </form>
           <div class="button-row">
-            <button id="addSelectedToDictionaryBtn" type="button" class="secondary">当前分段加入字典</button>
+            <button id="addSelectedToDictionaryBtn" type="button" class="secondary">选中分段加入字典</button>
           </div>
           <div class="filter-row">
             <input id="dictionarySearch" type="search" placeholder="搜索字典" />
@@ -150,8 +150,8 @@
           <div id="dictionaryToolbar" class="dictionary-toolbar" aria-label="字典词条操作">
             <span id="dictionarySelectedHint" class="dictionary-toolbar-label">未选中词条</span>
             <div class="dictionary-toolbar-actions">
-              <button type="button" data-action="insert-positive">插入正向</button>
-              <button type="button" data-action="insert-negative" class="secondary">插入负向</button>
+              <button type="button" data-action="insert-positive">追加正向</button>
+              <button type="button" data-action="insert-negative" class="secondary">追加负向</button>
               <button type="button" data-action="edit" class="secondary">编辑</button>
               <button type="button" data-action="delete" class="danger">删除</button>
             </div>
@@ -176,57 +176,67 @@
           <section class="editor-region prompt-input-region" aria-labelledby="positiveInputRegionTitle">
             <div class="editor-region-head">
               <div class="editor-region-title">
-                <span class="editor-region-label">提示词输入区</span>
                 <div class="editor-title-row">
-                  <h2 id="positiveInputRegionTitle">正向提示词</h2>
+                  <h2 id="positiveInputRegionTitle">输入草稿</h2>
                   <span id="positiveCount" class="muted">0 段</span>
                 </div>
               </div>
               <div class="button-row compact region-actions">
-                <button id="parsePositiveBtn" type="button">重新分段</button>
-                <button id="appendPositiveBtn" type="button" class="secondary">增加分段</button>
-                <button id="copyPositiveBtn" type="button" class="secondary">复制</button>
+                <button id="parsePositiveBtn" type="button">替换分段</button>
+                <button id="prependPositiveBtn" type="button" class="secondary" title="将草稿分段追加到列表顶部">追加顶部</button>
+                <button id="appendPositiveBtn" type="button" class="secondary" title="将草稿分段追加到列表底部">追加底部</button>
                 <button id="clearPositiveBtn" type="button" class="danger">清空</button>
               </div>
             </div>
-            <textarea id="positiveInput" class="prompt-input" rows="4" placeholder="粘贴正向提示词，可重新分段或追加分段"></textarea>
+            <textarea id="positiveInput" class="prompt-input" rows="4" placeholder="粘贴正向提示词。替换会覆盖下方分段；追加只添加到末尾。"></textarea>
+            <p class="helper-text">替换会重建列表；追加顶部或底部都会保留当前列表。</p>
           </section>
 
           <section class="editor-region segment-region" aria-labelledby="positiveSegmentRegionTitle">
             <div class="editor-region-head segment-region-head">
               <div class="editor-region-title">
-                <span class="editor-region-label">分段词汇操作区</span>
-                <h3 id="positiveSegmentRegionTitle">分段词汇</h3>
+                <h3 id="positiveSegmentRegionTitle">分段列表</h3>
               </div>
-              <span id="positiveSelectedHint" class="segment-toolbar-label">未选中分段</span>
+              <span id="positiveSelectedHint" class="segment-toolbar-label">未选中：先点击分段</span>
             </div>
             <div class="segment-toolbar" data-kind="positive" aria-label="正向分段操作">
-              <button type="button" class="secondary" data-action="weight-down" title="降低权重">权重-</button>
-              <button type="button" class="secondary" data-action="weight-up" title="增加权重">权重+</button>
-              <button type="button" class="secondary" data-action="move-up" title="上移">上移</button>
-              <button type="button" class="secondary" data-action="move-down" title="下移">下移</button>
-              <button type="button" class="secondary" data-action="insert-after" title="在当前分段后插入空白词">插入</button>
-              <button type="button" class="secondary" data-action="add-dictionary" title="加入字典">入字典</button>
-              <button type="button" class="danger" data-action="delete" title="删除">删除</button>
+              <div class="segment-tool-group" aria-label="权重">
+                <button type="button" class="secondary" data-action="weight-down" title="降低权重">权重 -</button>
+                <button type="button" class="secondary" data-action="weight-up" title="增加权重">权重 +</button>
+              </div>
+              <div class="segment-tool-group" aria-label="排序">
+                <button type="button" class="secondary" data-action="move-up" title="上移">上移</button>
+                <button type="button" class="secondary" data-action="move-down" title="下移">下移</button>
+              </div>
+              <div class="segment-tool-group" aria-label="其他操作">
+                <button type="button" class="insert-action" data-action="insert-after" title="在当前分段后插入空白词">插入</button>
+                <button type="button" class="secondary" data-action="line-break-before" title="让当前分段从新行开始">换行</button>
+                <button type="button" class="secondary" data-action="remove-line-break" title="取消当前分段前的换行">删行</button>
+                <button type="button" class="secondary" data-action="add-dictionary" title="加入字典">加入字典</button>
+                <button type="button" class="danger" data-action="delete" title="删除">删除</button>
+              </div>
             </div>
+            <p class="helper-text segment-helper">点击一个分段后，再调整权重、排序或加入字典。</p>
             <ul id="positiveSegments" class="segment-list" aria-label="正向提示词分段"></ul>
           </section>
 
           <section class="editor-region output-region merged-output" aria-labelledby="positiveOutputRegionTitle">
             <div class="editor-region-head merged-output-head">
               <div class="editor-region-title">
-                <span class="editor-region-label">合并结果区</span>
-                <h3 id="positiveOutputRegionTitle">合并结果</h3>
+                <h3 id="positiveOutputRegionTitle">合并输出</h3>
               </div>
               <div class="button-row compact region-actions">
-                <button id="copyPositiveMergedBtn" type="button" class="secondary">复制提示词</button>
-                <button id="copyPositiveChineseBtn" type="button" class="secondary">复制中文</button>
+                <button id="copyPositiveMergedBtn" type="button" class="secondary">复制合并提示词</button>
+                <button id="copyPositiveChineseBtn" type="button" class="secondary">复制中文对照</button>
               </div>
             </div>
-            <textarea id="positiveOutput" rows="3" readonly aria-label="正向提示词合并结果"></textarea>
+            <label>
+              提示词
+              <textarea id="positiveOutput" rows="6" readonly aria-label="正向提示词合并结果"></textarea>
+            </label>
             <label>
               中文对照
-              <textarea id="positiveChineseOutput" rows="3" readonly aria-label="正向提示词中文对照"></textarea>
+              <textarea id="positiveChineseOutput" rows="6" readonly aria-label="正向提示词中文对照"></textarea>
             </label>
           </section>
         </section>
@@ -235,57 +245,67 @@
           <section class="editor-region prompt-input-region" aria-labelledby="negativeInputRegionTitle">
             <div class="editor-region-head">
               <div class="editor-region-title">
-                <span class="editor-region-label">提示词输入区</span>
                 <div class="editor-title-row">
-                  <h2 id="negativeInputRegionTitle">负向提示词</h2>
+                  <h2 id="negativeInputRegionTitle">输入草稿</h2>
                   <span id="negativeCount" class="muted">0 段</span>
                 </div>
               </div>
               <div class="button-row compact region-actions">
-                <button id="parseNegativeBtn" type="button">重新分段</button>
-                <button id="appendNegativeBtn" type="button" class="secondary">增加分段</button>
-                <button id="copyNegativeBtn" type="button" class="secondary">复制</button>
+                <button id="parseNegativeBtn" type="button">替换分段</button>
+                <button id="prependNegativeBtn" type="button" class="secondary" title="将草稿分段追加到列表顶部">追加顶部</button>
+                <button id="appendNegativeBtn" type="button" class="secondary" title="将草稿分段追加到列表底部">追加底部</button>
                 <button id="clearNegativeBtn" type="button" class="danger">清空</button>
               </div>
             </div>
-            <textarea id="negativeInput" class="prompt-input" rows="4" placeholder="粘贴负向提示词，可重新分段或追加分段"></textarea>
+            <textarea id="negativeInput" class="prompt-input" rows="4" placeholder="粘贴负向提示词。替换会覆盖下方分段；追加只添加到末尾。"></textarea>
+            <p class="helper-text">替换会重建列表；追加顶部或底部都会保留当前列表。</p>
           </section>
 
           <section class="editor-region segment-region" aria-labelledby="negativeSegmentRegionTitle">
             <div class="editor-region-head segment-region-head">
               <div class="editor-region-title">
-                <span class="editor-region-label">分段词汇操作区</span>
-                <h3 id="negativeSegmentRegionTitle">分段词汇</h3>
+                <h3 id="negativeSegmentRegionTitle">分段列表</h3>
               </div>
-              <span id="negativeSelectedHint" class="segment-toolbar-label">未选中分段</span>
+              <span id="negativeSelectedHint" class="segment-toolbar-label">未选中：先点击分段</span>
             </div>
             <div class="segment-toolbar" data-kind="negative" aria-label="负向分段操作">
-              <button type="button" class="secondary" data-action="weight-down" title="降低权重">权重-</button>
-              <button type="button" class="secondary" data-action="weight-up" title="增加权重">权重+</button>
-              <button type="button" class="secondary" data-action="move-up" title="上移">上移</button>
-              <button type="button" class="secondary" data-action="move-down" title="下移">下移</button>
-              <button type="button" class="secondary" data-action="insert-after" title="在当前分段后插入空白词">插入</button>
-              <button type="button" class="secondary" data-action="add-dictionary" title="加入字典">入字典</button>
-              <button type="button" class="danger" data-action="delete" title="删除">删除</button>
+              <div class="segment-tool-group" aria-label="权重">
+                <button type="button" class="secondary" data-action="weight-down" title="降低权重">权重 -</button>
+                <button type="button" class="secondary" data-action="weight-up" title="增加权重">权重 +</button>
+              </div>
+              <div class="segment-tool-group" aria-label="排序">
+                <button type="button" class="secondary" data-action="move-up" title="上移">上移</button>
+                <button type="button" class="secondary" data-action="move-down" title="下移">下移</button>
+              </div>
+              <div class="segment-tool-group" aria-label="其他操作">
+                <button type="button" class="insert-action" data-action="insert-after" title="在当前分段后插入空白词">插入</button>
+                <button type="button" class="secondary" data-action="line-break-before" title="让当前分段从新行开始">换行</button>
+                <button type="button" class="secondary" data-action="remove-line-break" title="取消当前分段前的换行">删行</button>
+                <button type="button" class="secondary" data-action="add-dictionary" title="加入字典">加入字典</button>
+                <button type="button" class="danger" data-action="delete" title="删除">删除</button>
+              </div>
             </div>
+            <p class="helper-text segment-helper">点击一个分段后，再调整权重、排序或加入字典。</p>
             <ul id="negativeSegments" class="segment-list" aria-label="负向提示词分段"></ul>
           </section>
 
           <section class="editor-region output-region merged-output" aria-labelledby="negativeOutputRegionTitle">
             <div class="editor-region-head merged-output-head">
               <div class="editor-region-title">
-                <span class="editor-region-label">合并结果区</span>
-                <h3 id="negativeOutputRegionTitle">合并结果</h3>
+                <h3 id="negativeOutputRegionTitle">合并输出</h3>
               </div>
               <div class="button-row compact region-actions">
-                <button id="copyNegativeMergedBtn" type="button" class="secondary">复制提示词</button>
-                <button id="copyNegativeChineseBtn" type="button" class="secondary">复制中文</button>
+                <button id="copyNegativeMergedBtn" type="button" class="secondary">复制合并提示词</button>
+                <button id="copyNegativeChineseBtn" type="button" class="secondary">复制中文对照</button>
               </div>
             </div>
-            <textarea id="negativeOutput" rows="3" readonly aria-label="负向提示词合并结果"></textarea>
+            <label>
+              提示词
+              <textarea id="negativeOutput" rows="6" readonly aria-label="负向提示词合并结果"></textarea>
+            </label>
             <label>
               中文对照
-              <textarea id="negativeChineseOutput" rows="3" readonly aria-label="负向提示词中文对照"></textarea>
+              <textarea id="negativeChineseOutput" rows="6" readonly aria-label="负向提示词中文对照"></textarea>
             </label>
           </section>
         </section>
@@ -316,6 +336,7 @@
             <button id="translateBtn" type="button">翻译</button>
             <button id="retranslateBtn" type="button" class="secondary" title="跳过本地字典，强制 AI 翻译并覆盖对应字典词条">重新翻译</button>
           </div>
+          <p class="helper-text warning-text">重新翻译会跳过本地字典，并用 AI 结果覆盖匹配词条。</p>
           <label>
             结果
             <textarea id="translateOutput" rows="5" readonly></textarea>
@@ -330,46 +351,52 @@
               DeepSeek 思考模式
             </label>
           </div>
-          <label>
+          <label id="aiProcessBlock" class="ai-process-block">
             AI 过程
             <textarea id="aiProcessOutput" rows="7" readonly placeholder="翻译时会显示本地字典命中、API 请求进度，以及 DeepSeek 返回的 reasoning_content。重新翻译会跳过本地字典并覆盖对应词条。"></textarea>
           </label>
         </section>
 
         <section class="stack">
-          <div class="panel-title">
-            <h2>AI 设置</h2>
-          </div>
-          <label>
-            Provider
-            <select id="aiProvider">
-              <option value="deepseek">DeepSeek</option>
-              <option value="mock">Mock</option>
-              <option value="openai-compatible">OpenAI Compatible</option>
-              <option value="custom">Custom</option>
-            </select>
-          </label>
-          <label>
-            Model
-            <input id="aiModel" type="text" placeholder="例如：deepseek-v4-flash" />
-          </label>
-          <label>
-            API Key
-            <div class="input-action-row">
-              <input id="aiApiKey" type="password" autocomplete="off" placeholder="仅保存在 LocalStorage" />
-              <button id="promptApiKeyBtn" type="button" class="secondary">输入</button>
+          <details class="settings-details">
+            <summary>
+              <span class="settings-summary-title">AI 设置</span>
+              <span class="muted">默认收起，避免占用编辑空间</span>
+            </summary>
+            <div class="settings-details-body">
+              <label>
+                Provider
+                <select id="aiProvider">
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="mock">Mock</option>
+                  <option value="openai-compatible">OpenAI Compatible</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </label>
+              <label>
+                Model
+                <input id="aiModel" type="text" placeholder="例如：deepseek-v4-flash" />
+              </label>
+              <label>
+                API Key
+                <div class="input-action-row">
+                  <input id="aiApiKey" type="password" autocomplete="off" placeholder="仅保存在当前浏览器" />
+                  <button id="promptApiKeyBtn" type="button" class="secondary">输入</button>
+                </div>
+              </label>
+              <p class="helper-text">API Key 仅保存在当前浏览器；导入和导出的 JSON 都不会覆盖或包含它。</p>
+              <label>
+                Endpoint
+                <input id="aiEndpoint" type="text" placeholder="https://api.deepseek.com" />
+              </label>
+              <div class="button-row">
+                <button id="useDeepSeekDefaultsBtn" type="button" class="secondary">DeepSeek 默认</button>
+                <button id="testAiBtn" type="button">测试连接</button>
+              </div>
+              <p id="aiTestResult" class="muted status-line">未测试</p>
+              <p id="saveStatus" class="muted status-line">已自动保存</p>
             </div>
-          </label>
-          <label>
-            Endpoint
-            <input id="aiEndpoint" type="text" placeholder="https://api.deepseek.com" />
-          </label>
-          <div class="button-row">
-            <button id="useDeepSeekDefaultsBtn" type="button" class="secondary">DeepSeek 默认</button>
-            <button id="testAiBtn" type="button">测试连接</button>
-          </div>
-          <p id="aiTestResult" class="muted status-line">未测试</p>
-          <p id="saveStatus" class="muted status-line">已自动保存</p>
+          </details>
         </section>
       </aside>
     </main>

@@ -7,7 +7,7 @@ const DEFAULT_SETTINGS = {
   model: "deepseek-v4-flash",
   apiKey: "",
   endpoint: "https://api.deepseek.com",
-  showAiProcess: true,
+  showAiProcess: false,
   enableDeepSeekThinking: true
 };
 
@@ -53,6 +53,7 @@ const el = {
   showAiProcess: document.getElementById("showAiProcess"),
   enableDeepSeekThinking: document.getElementById("enableDeepSeekThinking"),
   aiProcessOutput: document.getElementById("aiProcessOutput"),
+  aiProcessBlock: document.getElementById("aiProcessBlock"),
 
   aiProvider: document.getElementById("aiProvider"),
   aiModel: document.getElementById("aiModel"),
@@ -292,10 +293,10 @@ function bindCoreEvents() {
 
   document.getElementById("parsePositiveBtn").addEventListener("click", () => parsePromptFromInput("positive"));
   document.getElementById("parseNegativeBtn").addEventListener("click", () => parsePromptFromInput("negative"));
-  document.getElementById("appendPositiveBtn").addEventListener("click", () => appendPromptFromInput("positive"));
-  document.getElementById("appendNegativeBtn").addEventListener("click", () => appendPromptFromInput("negative"));
-  document.getElementById("copyPositiveBtn").addEventListener("click", () => copyPrompt("positive"));
-  document.getElementById("copyNegativeBtn").addEventListener("click", () => copyPrompt("negative"));
+  document.getElementById("prependPositiveBtn").addEventListener("click", () => appendPromptFromInput("positive", "top"));
+  document.getElementById("prependNegativeBtn").addEventListener("click", () => appendPromptFromInput("negative", "top"));
+  document.getElementById("appendPositiveBtn").addEventListener("click", () => appendPromptFromInput("positive", "bottom"));
+  document.getElementById("appendNegativeBtn").addEventListener("click", () => appendPromptFromInput("negative", "bottom"));
   document.getElementById("copyPositiveMergedBtn").addEventListener("click", () => copyPrompt("positive"));
   document.getElementById("copyNegativeMergedBtn").addEventListener("click", () => copyPrompt("negative"));
   document.getElementById("copyPositiveChineseBtn").addEventListener("click", () => copyChineseReference("positive"));
@@ -364,6 +365,7 @@ function bindSettingsEvents() {
         applyDeepSeekDefaults({ keepApiKey: true, onlyFillEmpty: true });
       }
       syncSettingsFromInputs();
+      updateAiProcessVisibility();
     });
   });
 
@@ -413,6 +415,7 @@ function renderSettings() {
   el.aiEndpoint.value = state.settings.endpoint || "";
   el.showAiProcess.checked = state.settings.showAiProcess !== false;
   el.enableDeepSeekThinking.checked = state.settings.enableDeepSeekThinking !== false;
+  updateAiProcessVisibility();
 }
 
 function syncSettingsFromInputs() {
@@ -435,6 +438,11 @@ function getSettingsFromInputs() {
   };
 }
 
+function updateAiProcessVisibility() {
+  if (!el.aiProcessBlock) return;
+  el.aiProcessBlock.hidden = !el.showAiProcess.checked;
+}
+
 function applyDeepSeekDefaults(options = {}) {
   const keepApiKey = options.keepApiKey !== false;
   const onlyFillEmpty = Boolean(options.onlyFillEmpty);
@@ -445,7 +453,7 @@ function applyDeepSeekDefaults(options = {}) {
 }
 
 function promptForApiKey() {
-  const key = window.prompt("请输入 DeepSeek API Key。它只会保存在当前浏览器 LocalStorage 中：", "");
+  const key = window.prompt("请输入 DeepSeek API Key。它只会保存在当前浏览器中，不会随 JSON 导入或导出：", "");
   if (key === null) return;
   const trimmed = key.trim();
   if (!trimmed) {
@@ -498,7 +506,7 @@ function renderPromptArea(kind) {
   output.value = buildPrompt(kind);
   chineseOutput.value = buildChineseReference(kind);
   const selectedIndex = state.selected.kind === kind ? segments.findIndex((segment) => segment.id === state.selected.id) : -1;
-  hint.textContent = selectedIndex >= 0 ? `选中第 ${selectedIndex + 1} 段` : "未选中分段";
+  hint.textContent = selectedIndex >= 0 ? `选中第 ${selectedIndex + 1} 段` : "未选中：先点击分段";
 }
 
 function renderSelectedDetail() {
@@ -511,7 +519,7 @@ function renderSelectedDetail() {
 
   el.selectedDetail.className = "detail-box";
   el.selectedDetail.innerHTML = `
-    <div class="item-meta">${state.selected.kind === "positive" ? "正向提示词" : "负向提示词"}</div>
+    <div class="item-meta">${state.selected.kind === "positive" ? "正向分段" : "负向分段"}</div>
     <label>
       文本
       <textarea id="detailText" rows="4">${escapeHtml(selected.text)}</textarea>
@@ -538,11 +546,11 @@ function parsePromptFromInput(kind) {
   const label = kind === "positive" ? "正向提示词" : "负向提示词";
 
   if (!segments.length) {
-    showToast("输入框里没有可分段的内容");
+    showToast("草稿里没有可分段的内容");
     return;
   }
 
-  if (!confirm(`重新分段会用输入框中的 ${segments.length} 个分段替换当前${label}的 ${state.prompts[kind].length} 个分段。\n\n确定继续吗？`)) {
+  if (!confirm(`替换分段会用草稿中的 ${segments.length} 个分段覆盖当前${label}的 ${state.prompts[kind].length} 个分段。\n\n确定继续吗？`)) {
     return;
   }
 
@@ -551,29 +559,35 @@ function parsePromptFromInput(kind) {
   state.selected = segments[0] ? { kind, id: segments[0].id } : { kind, id: null };
   saveState();
   renderAll();
-  showToast(`已重新分成 ${segments.length} 段`);
+  showToast(`已替换为 ${segments.length} 段`);
 }
 
-function appendPromptFromInput(kind) {
+function appendPromptFromInput(kind, position = "bottom") {
   const input = kind === "positive" ? el.positiveInput : el.negativeInput;
   const segments = splitPrompt(input.value);
   const label = kind === "positive" ? "正向提示词" : "负向提示词";
+  const isTop = position === "top";
+  const positionLabel = isTop ? "顶部" : "底部";
 
   if (!segments.length) {
-    showToast("输入框里没有可追加的分段");
+    showToast("草稿里没有可追加的分段");
     return;
   }
 
-  if (!confirm(`增加分段会保留当前${label}的 ${state.prompts[kind].length} 个分段，并在末尾追加输入框中的 ${segments.length} 个分段。\n\n确定继续吗？`)) {
+  if (!confirm(`追加到${positionLabel}会保留当前${label}的 ${state.prompts[kind].length} 个分段，并在${isTop ? "开头" : "末尾"}加入草稿中的 ${segments.length} 个分段。\n\n确定继续吗？`)) {
     return;
   }
 
   captureUndoStep();
-  state.prompts[kind].push(...segments);
+  if (isTop) {
+    state.prompts[kind].unshift(...segments);
+  } else {
+    state.prompts[kind].push(...segments);
+  }
   state.selected = { kind, id: segments[0].id };
   saveState();
   renderAll();
-  showToast(`已追加 ${segments.length} 段`);
+  showToast(`已追加到${positionLabel}：${segments.length} 段`);
 }
 
 function splitPrompt(text) {
@@ -750,7 +764,7 @@ function handleSegmentToolbarClick(event) {
 
   const kind = toolbar.dataset.kind;
   if (state.selected.kind !== kind || !state.selected.id) {
-    showToast("请先选中这一栏里的分段");
+    showToast("请先点击一个分段，再使用工具栏");
     return;
   }
 
@@ -764,7 +778,7 @@ function updateSegmentSelectionUi() {
   ].forEach(({ kind, list, hint }) => {
     const segments = state.prompts[kind];
     const selectedIndex = state.selected.kind === kind ? segments.findIndex((segment) => segment.id === state.selected.id) : -1;
-    hint.textContent = selectedIndex >= 0 ? `选中第 ${selectedIndex + 1} 段` : "未选中分段";
+    hint.textContent = selectedIndex >= 0 ? `选中第 ${selectedIndex + 1} 段` : "未选中：先点击分段";
 
     list.querySelectorAll(".segment-item").forEach((item) => {
       item.classList.toggle("selected", state.selected.kind === kind && item.dataset.id === state.selected.id);
@@ -974,6 +988,28 @@ function runSegmentAction(kind, id, action) {
     focusSegmentText(kind, blank.id);
     showToast("已插入空白分段");
     return;
+  }
+
+  if (action === "line-break-before") {
+    if (index === 0) {
+      showToast("第一段前面没有可新增的行");
+      return;
+    }
+    if (!segments[index].lineBreakBefore) {
+      captureUndoStep();
+      segments[index].lineBreakBefore = true;
+      changed = true;
+    }
+  }
+
+  if (action === "remove-line-break") {
+    if (!segments[index].lineBreakBefore) {
+      showToast("当前分段前没有换行");
+      return;
+    }
+    captureUndoStep();
+    segments[index].lineBreakBefore = false;
+    changed = true;
   }
 
   if (action === "delete") {
@@ -1197,11 +1233,11 @@ function renderLibrary() {
       <p class="item-meta">${splitPrompt(item.prompt).length} 段</p>
       ${renderTags(item.tags)}
       ${item.note ? `<p class="item-meta">${escapeHtml(item.note)}</p>` : ""}
-      <div class="button-row">
-        <button type="button" data-action="insert-positive">插入正向输入</button>
-        <button type="button" data-action="insert-negative" class="secondary">插入负向输入</button>
-        <button type="button" data-action="edit" class="secondary">编辑</button>
-        <button type="button" data-action="delete" class="danger">删除</button>
+      <div class="item-actions">
+        <button type="button" data-action="insert-positive" title="追加到正向草稿">正向</button>
+        <button type="button" data-action="insert-negative" class="secondary" title="追加到负向草稿">负向</button>
+        <button type="button" data-action="edit" class="secondary" title="编辑">编</button>
+        <button type="button" data-action="delete" class="danger" title="删除">删</button>
       </div>
     `;
     el.libraryList.appendChild(card);
@@ -1227,7 +1263,7 @@ function insertLibraryItem(item, kind) {
   appendTextToPromptInput(target, item.prompt);
   switchPromptTab(kind);
   target.focus();
-  showToast(kind === "positive" ? "已追加到正向输入框" : "已追加到负向输入框");
+  showToast(kind === "positive" ? "已追加到正向草稿" : "已追加到负向草稿");
 }
 
 function editLibraryItem(item) {
@@ -1345,10 +1381,10 @@ function renderTemplates() {
       ${renderTags(item.tags)}
       ${item.note ? `<p class="item-meta">${escapeHtml(item.note)}</p>` : ""}
       <p class="item-meta">正向 ${splitPrompt(item.positive).length} 段 · 负向 ${splitPrompt(item.negative).length} 段</p>
-      <div class="button-row">
-        <button type="button" data-action="load">加载</button>
-        <button type="button" data-action="edit" class="secondary">编辑</button>
-        <button type="button" data-action="delete" class="danger">删除</button>
+      <div class="item-actions template-actions">
+        <button type="button" data-action="load" title="套用模板">套用</button>
+        <button type="button" data-action="edit" class="secondary" title="编辑">编</button>
+        <button type="button" data-action="delete" class="danger" title="删除">删</button>
       </div>
     `;
     el.templateList.appendChild(card);
@@ -1369,6 +1405,14 @@ function handleTemplateClick(event) {
 }
 
 function loadTemplate(item) {
+  const currentCount = state.prompts.positive.length + state.prompts.negative.length;
+  if (
+    currentCount > 0 &&
+    !confirm(`套用模板会替换当前正向和负向分段，可通过撤回恢复。\n\n确定套用“${item.name}”吗？`)
+  ) {
+    return;
+  }
+
   captureUndoStep();
   state.prompts.positive = splitPrompt(item.positive);
   state.prompts.negative = splitPrompt(item.negative);
@@ -1382,7 +1426,7 @@ function loadTemplate(item) {
 
   saveState();
   renderAll();
-  showToast("模板已加载");
+  showToast("模板已套用");
 }
 
 function editTemplate(item) {
@@ -1578,7 +1622,7 @@ function insertDictionaryItem(item, kind) {
   appendTextToPromptInput(target, text);
   switchPromptTab(kind);
   target.focus();
-  showToast(kind === "positive" ? "已追加到正向输入框" : "已追加到负向输入框");
+  showToast(kind === "positive" ? "已追加到正向草稿" : "已追加到负向草稿");
 }
 
 function resetDictionaryForm() {
@@ -2139,7 +2183,8 @@ function getFriendlyErrorMessage(error) {
 }
 
 function exportData() {
-  const payload = JSON.stringify(state, null, 2);
+  const exportState = createExportState();
+  const payload = JSON.stringify(exportState, null, 2);
   const blob = new Blob([payload], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -2149,7 +2194,16 @@ function exportData() {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  showToast("JSON 已导出");
+  showToast("JSON 已导出（不含 API Key）");
+}
+
+function createExportState() {
+  const exportState = JSON.parse(JSON.stringify(state));
+  exportState.settings = {
+    ...exportState.settings,
+    apiKey: ""
+  };
+  return exportState;
 }
 
 function importData(event) {
@@ -2160,11 +2214,12 @@ function importData(event) {
   reader.onload = () => {
     try {
       const imported = normalizeImportedState(JSON.parse(String(reader.result)));
+      imported.settings.apiKey = state.settings.apiKey || "";
       captureUndoStep();
       Object.assign(state, imported);
       saveState();
       renderAll();
-      showToast("JSON 已导入");
+      showToast("JSON 已导入（API Key 保持不变）");
     } catch (error) {
       console.error(error);
       showToast("导入失败：JSON 格式不正确");
