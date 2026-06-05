@@ -1,6 +1,7 @@
 "use strict";
 
 const STORAGE_KEY = "comfyPromptOrganizer.v1";
+const HISTORY_LIMIT = 20;
 const DEFAULT_SETTINGS = {
   provider: "deepseek",
   model: "deepseek-v4-flash",
@@ -11,14 +12,17 @@ const DEFAULT_SETTINGS = {
 };
 
 const state = loadState();
+const undoStack = [];
 let toastTimer = null;
 let selectedDictionaryId = null;
 let segmentDragState = null;
+let groupedUndoKey = null;
 
 const SEGMENT_DRAG_DELAY = 420;
 const SEGMENT_DRAG_TOLERANCE = 8;
 
 const el = {
+  undoBtn: document.getElementById("undoBtn"),
   exportDataBtn: document.getElementById("exportDataBtn"),
   importDataInput: document.getElementById("importDataInput"),
   resetAllBtn: document.getElementById("resetAllBtn"),
@@ -187,13 +191,97 @@ function saveState() {
   state.updatedAt = new Date().toISOString();
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   showSaveStatus();
+  updateUndoControl();
 }
 
 function showSaveStatus() {
   el.saveStatus.textContent = "已自动保存 " + new Date().toLocaleTimeString();
 }
 
+function createHistorySnapshot(source = state) {
+  return JSON.parse(
+    JSON.stringify({
+      prompts: source.prompts,
+      selected: source.selected,
+      library: source.library,
+      templates: source.templates,
+      dictionary: source.dictionary,
+      settings: source.settings
+    })
+  );
+}
+
+function captureUndoStep(groupKey = null) {
+  if (groupKey && groupedUndoKey === groupKey) return false;
+
+  const snapshot = createHistorySnapshot();
+  const previous = undoStack[undoStack.length - 1];
+  const changedFromPrevious = !previous || JSON.stringify(previous) !== JSON.stringify(snapshot);
+
+  if (changedFromPrevious) {
+    undoStack.push(snapshot);
+    if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+  }
+
+  groupedUndoKey = groupKey;
+  updateUndoControl();
+  return changedFromPrevious;
+}
+
+function finishUndoGroup(groupKey = null) {
+  if (!groupKey || groupedUndoKey === groupKey) groupedUndoKey = null;
+}
+
+function undoLastStep() {
+  const snapshot = undoStack.pop();
+  if (!snapshot) {
+    updateUndoControl();
+    showToast("暂无可撤回步骤");
+    return;
+  }
+
+  finishUndoGroup();
+  restoreStateSnapshot(snapshot);
+  showToast(`已撤回上一步，还可撤回 ${undoStack.length} 步`);
+}
+
+function restoreStateSnapshot(snapshot) {
+  const restored = normalizeImportedState(snapshot);
+  Object.keys(state).forEach((key) => delete state[key]);
+  Object.assign(state, restored);
+  if (!state.dictionary.some((item) => item.id === selectedDictionaryId)) selectedDictionaryId = null;
+  saveState();
+  renderAll();
+}
+
+function updateUndoControl() {
+  if (!el.undoBtn) return;
+  const count = undoStack.length;
+  el.undoBtn.disabled = count === 0;
+  el.undoBtn.textContent = count > 0 ? `撤回 (${count})` : "撤回";
+  el.undoBtn.title =
+    count > 0 ? `撤回上一步，可撤回 ${count} 步，最多保留 ${HISTORY_LIMIT} 步` : `暂无可撤回步骤，最多保留 ${HISTORY_LIMIT} 步`;
+}
+
+function handleUndoShortcut(event) {
+  const key = String(event.key || "").toLowerCase();
+  if (key !== "z" || event.shiftKey || event.altKey || (!event.ctrlKey && !event.metaKey)) return;
+  if (isEditableTarget(event.target)) return;
+
+  event.preventDefault();
+  undoLastStep();
+}
+
+function isEditableTarget(target) {
+  if (!(target instanceof HTMLElement)) return false;
+  return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+}
+
 function bindCoreEvents() {
+  el.undoBtn.addEventListener("click", undoLastStep);
+  document.addEventListener("keydown", handleUndoShortcut);
+  document.addEventListener("focusout", () => finishUndoGroup());
+
   document.querySelectorAll(".tab-button").forEach((button) => {
     button.addEventListener("click", () => switchTab(button.dataset.tab));
   });
@@ -313,6 +401,7 @@ function renderAll() {
   renderLibrary();
   renderTemplates();
   renderDictionary();
+  updateUndoControl();
 }
 
 function renderSettings() {
@@ -325,13 +414,23 @@ function renderSettings() {
 }
 
 function syncSettingsFromInputs() {
-  state.settings.provider = el.aiProvider.value;
-  state.settings.model = el.aiModel.value.trim();
-  state.settings.apiKey = el.aiApiKey.value;
-  state.settings.endpoint = el.aiEndpoint.value.trim();
-  state.settings.showAiProcess = el.showAiProcess.checked;
-  state.settings.enableDeepSeekThinking = el.enableDeepSeekThinking.checked;
+  const nextSettings = getSettingsFromInputs();
+  if (JSON.stringify(state.settings) === JSON.stringify(nextSettings)) return;
+
+  captureUndoStep("settings");
+  state.settings = nextSettings;
   saveState();
+}
+
+function getSettingsFromInputs() {
+  return {
+    provider: el.aiProvider.value,
+    model: el.aiModel.value.trim(),
+    apiKey: el.aiApiKey.value,
+    endpoint: el.aiEndpoint.value.trim(),
+    showAiProcess: el.showAiProcess.checked,
+    enableDeepSeekThinking: el.enableDeepSeekThinking.checked
+  };
 }
 
 function applyDeepSeekDefaults(options = {}) {
@@ -445,6 +544,7 @@ function parsePromptFromInput(kind) {
     return;
   }
 
+  captureUndoStep();
   state.prompts[kind] = segments;
   state.selected = segments[0] ? { kind, id: segments[0].id } : { kind, id: null };
   saveState();
@@ -466,6 +566,7 @@ function appendPromptFromInput(kind) {
     return;
   }
 
+  captureUndoStep();
   state.prompts[kind].push(...segments);
   state.selected = { kind, id: segments[0].id };
   saveState();
@@ -676,11 +777,13 @@ function handleSegmentInput(event, kind) {
   if (!segment) return;
 
   if (event.target.classList.contains("segment-text")) {
+    captureUndoStep(`segment:${kind}:${segment.id}:text`);
     segment.text = event.target.value.trimStart();
     updateSegmentTranslationCell(item, segment.text);
   }
 
   if (event.target.classList.contains("segment-weight")) {
+    captureUndoStep(`segment:${kind}:${segment.id}:weight`);
     segment.weight = normalizeWeight(event.target.value);
   }
 
@@ -744,6 +847,7 @@ function handleSegmentPointerEnd(event) {
     if (changed) {
       saveState();
       renderAll();
+      finishUndoGroup("segment-drag");
       showToast("已调整分段顺序");
     } else {
       updateSegmentSelectionUi();
@@ -779,6 +883,7 @@ function reorderSegmentByDrag(kind, draggedId, targetId) {
   const toIndex = segments.findIndex((segment) => segment.id === targetId);
   if (fromIndex === -1 || toIndex === -1) return;
 
+  if (!segmentDragState.changed) captureUndoStep("segment-drag");
   const [dragged] = segments.splice(fromIndex, 1);
   segments.splice(toIndex, 0, dragged);
   segmentDragState.changed = true;
@@ -831,24 +936,34 @@ function runSegmentAction(kind, id, action) {
   const segments = state.prompts[kind];
   const index = segments.findIndex((segment) => segment.id === id);
   if (index === -1) return;
+  let changed = false;
 
   if (action === "weight-up") {
+    captureUndoStep();
     segments[index].weight = normalizeWeight(segments[index].weight + 0.1);
+    changed = true;
   }
 
   if (action === "weight-down") {
+    captureUndoStep();
     segments[index].weight = normalizeWeight(segments[index].weight - 0.1);
+    changed = true;
   }
 
   if (action === "move-up" && index > 0) {
+    captureUndoStep();
     [segments[index - 1], segments[index]] = [segments[index], segments[index - 1]];
+    changed = true;
   }
 
   if (action === "move-down" && index < segments.length - 1) {
+    captureUndoStep();
     [segments[index + 1], segments[index]] = [segments[index], segments[index + 1]];
+    changed = true;
   }
 
   if (action === "insert-after") {
+    captureUndoStep();
     const blank = createSegment("", 1);
     segments.splice(index + 1, 0, blank);
     state.selected = { kind, id: blank.id };
@@ -860,15 +975,19 @@ function runSegmentAction(kind, id, action) {
   }
 
   if (action === "delete") {
+    captureUndoStep();
     segments.splice(index, 1);
     const next = segments[index] || segments[index - 1] || null;
     state.selected = next ? { kind, id: next.id } : { kind, id: null };
+    changed = true;
   }
 
   if (action === "add-dictionary") {
     addSegmentToDictionary(segments[index]);
+    return;
   }
 
+  if (!changed) return;
   saveState();
   renderAll();
 }
@@ -878,10 +997,12 @@ function handleDetailInput(event) {
   if (!selected) return;
 
   if (event.target.id === "detailText") {
+    captureUndoStep(`detail:${state.selected.kind}:${selected.id}:text`);
     selected.text = event.target.value.trimStart();
   }
 
   if (event.target.id === "detailWeight") {
+    captureUndoStep(`detail:${state.selected.kind}:${selected.id}:weight`);
     selected.weight = normalizeWeight(event.target.value);
   }
 
@@ -895,13 +1016,18 @@ function handleDetailClick(event) {
 
   const selected = getSelectedSegment();
   if (!selected) return;
+  let changed = false;
 
   if (action === "detail-weight-up") {
+    captureUndoStep();
     selected.weight = normalizeWeight(selected.weight + 0.1);
+    changed = true;
   }
 
   if (action === "detail-weight-down") {
+    captureUndoStep();
     selected.weight = normalizeWeight(selected.weight - 0.1);
+    changed = true;
   }
 
   if (action === "detail-to-translate") {
@@ -912,12 +1038,15 @@ function handleDetailClick(event) {
 
   if (action === "detail-add-dictionary") {
     addSegmentToDictionary(selected);
+    return;
   }
 
   if (action === "detail-delete") {
     deleteSelectedSegment();
+    changed = true;
   }
 
+  if (!changed) return;
   saveState();
   renderAll();
 }
@@ -927,6 +1056,7 @@ function deleteSelectedSegment() {
   const segments = state.prompts[kind];
   const index = segments.findIndex((segment) => segment.id === id);
   if (index === -1) return;
+  captureUndoStep();
   segments.splice(index, 1);
   const next = segments[index] || segments[index - 1] || null;
   state.selected = next ? { kind, id: next.id } : { kind, id: null };
@@ -948,6 +1078,7 @@ function segmentExistsInState(targetState, kind, id) {
 function clearPrompt(kind) {
   const label = kind === "positive" ? "正向提示词" : "负向提示词";
   if (!confirm(`确定清空${label}？`)) return;
+  captureUndoStep();
   state.prompts[kind] = [];
   if (state.selected.kind === kind) state.selected = { kind, id: null };
   saveState();
@@ -1007,6 +1138,7 @@ function saveLibraryItem(event) {
     return;
   }
 
+  captureUndoStep();
   upsertById(state.library, item);
   resetLibraryForm();
   saveState();
@@ -1107,6 +1239,7 @@ function editLibraryItem(item) {
 
 function deleteLibraryItem(id) {
   if (!confirm("确定删除这条提示词？")) return;
+  captureUndoStep();
   state.library = state.library.filter((item) => item.id !== id);
   saveState();
   renderCategoryFilters();
@@ -1158,6 +1291,7 @@ function saveTemplate(event) {
     return;
   }
 
+  captureUndoStep();
   upsertById(state.templates, item);
   resetTemplateForm();
   saveState();
@@ -1233,6 +1367,7 @@ function handleTemplateClick(event) {
 }
 
 function loadTemplate(item) {
+  captureUndoStep();
   state.prompts.positive = splitPrompt(item.positive);
   state.prompts.negative = splitPrompt(item.negative);
   el.positiveInput.value = item.positive;
@@ -1259,6 +1394,7 @@ function editTemplate(item) {
 
 function deleteTemplate(id) {
   if (!confirm("确定删除这个模板？")) return;
+  captureUndoStep();
   state.templates = state.templates.filter((item) => item.id !== id);
   saveState();
   renderTemplates();
@@ -1286,6 +1422,7 @@ function saveDictionaryItem(event) {
     return;
   }
 
+  captureUndoStep();
   upsertById(state.dictionary, item);
   selectedDictionaryId = item.id;
   resetDictionaryForm();
@@ -1423,6 +1560,7 @@ function editDictionaryItem(item) {
 
 function deleteDictionaryItem(id) {
   if (!confirm("确定删除这个词条？")) return;
+  captureUndoStep();
   state.dictionary = state.dictionary.filter((item) => item.id !== id);
   if (selectedDictionaryId === id) selectedDictionaryId = null;
   saveState();
@@ -1453,13 +1591,10 @@ function addSelectedSegmentToDictionary() {
     return;
   }
   addSegmentToDictionary(selected);
-  saveState();
-  renderCategoryFilters();
-  renderDictionary();
 }
 
 function addSegmentToDictionary(segment) {
-  if (!segment?.text) return;
+  if (!segment?.text) return false;
   const isChinese = /[\u4e00-\u9fff]/.test(segment.text);
   const item = normalizeDictionaryItem({
     chinese: isChinese ? segment.text : "",
@@ -1475,9 +1610,10 @@ function addSegmentToDictionary(segment) {
 
   if (duplicate) {
     showToast("字典中已有相同词条");
-    return;
+    return false;
   }
 
+  captureUndoStep();
   state.dictionary.unshift(item);
   saveState();
   renderCategoryFilters();
@@ -1485,6 +1621,7 @@ function addSegmentToDictionary(segment) {
   renderPromptArea("positive");
   renderPromptArea("negative");
   showToast("已加入字典");
+  return true;
 }
 
 function renderCategoryFilters() {
@@ -1547,8 +1684,10 @@ async function translateCurrentInput() {
     renderDictionary();
     renderPromptArea("positive");
     renderPromptArea("negative");
+    finishUndoGroup("translation-cache");
     appendProcessLine("翻译完成。");
   } catch (error) {
+    finishUndoGroup("translation-cache");
     console.error(error);
     el.translateOutput.value = getFriendlyErrorMessage(error);
     showToast("翻译失败");
@@ -1686,11 +1825,18 @@ function cacheTranslationPair(sourceText, translatedText, direction, callbacks =
     note: "由翻译功能自动保存"
   });
 
+  const undoLength = undoStack.length;
+  const pushedUndo = captureUndoStep("translation-cache");
   const changed = upsertDictionaryPair(item);
   if (changed) {
     saveState();
     callbacks.onLog?.(`已写入字典：${item.chinese} / ${item.english}`);
   } else {
+    if (pushedUndo && undoStack.length > undoLength) {
+      undoStack.pop();
+      finishUndoGroup("translation-cache");
+      updateUndoControl();
+    }
     callbacks.onLog?.("字典已有相同对照，跳过保存。");
   }
   return changed;
@@ -1953,6 +2099,7 @@ function importData(event) {
   reader.onload = () => {
     try {
       const imported = normalizeImportedState(JSON.parse(String(reader.result)));
+      captureUndoStep();
       Object.assign(state, imported);
       saveState();
       renderAll();
@@ -1968,7 +2115,8 @@ function importData(event) {
 }
 
 function resetAllData() {
-  if (!confirm("确定清空所有本地数据？此操作不可撤销。")) return;
+  if (!confirm("确定清空所有本地数据？清空后可通过撤回恢复。")) return;
+  captureUndoStep();
   const empty = createEmptyState();
   Object.keys(state).forEach((key) => delete state[key]);
   Object.assign(state, empty);
