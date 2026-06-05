@@ -32,131 +32,142 @@
         </nav>
 
         <section id="libraryTab" class="tab-panel active">
-          <form id="libraryForm" class="stack form-block">
-            <input id="libraryEditId" type="hidden" />
-            <label>
-              标题
-              <input id="libraryTitle" type="text" placeholder="例如：写实人像基础词组" />
-            </label>
-            <label>
-              提示词内容
-              <textarea id="libraryPrompt" rows="4" placeholder="可以保存一段或多段提示词，例如：masterpiece, best quality, white hair"></textarea>
-            </label>
-            <div class="two-col">
+          <div class="tab-controls">
+            <form id="libraryForm" class="stack form-block">
+              <input id="libraryEditId" type="hidden" />
               <label>
-                分类
-                <input id="libraryCategory" type="text" placeholder="角色 / 画风" />
+                标题
+                <input id="libraryTitle" type="text" placeholder="例如：写实人像基础词组" />
               </label>
               <label>
-                标签
-                <input id="libraryTags" type="text" placeholder="逗号分隔" />
+                提示词内容
+                <textarea id="libraryPrompt" rows="3" placeholder="可以保存一段或多段提示词，例如：masterpiece, best quality, white hair"></textarea>
               </label>
-            </div>
-            <label>
-              备注
-              <textarea id="libraryNote" rows="2"></textarea>
-            </label>
-            <div class="button-row">
-              <button type="submit">保存提示词组</button>
-              <button id="libraryCancelBtn" type="button" class="secondary">取消编辑</button>
-            </div>
-          </form>
+              <div class="two-col">
+                <label>
+                  分类
+                  <input id="libraryCategory" type="text" placeholder="角色 / 画风" />
+                </label>
+                <label>
+                  标签
+                  <input id="libraryTags" type="text" placeholder="逗号分隔" />
+                </label>
+              </div>
+              <label>
+                备注
+                <textarea id="libraryNote" rows="1"></textarea>
+              </label>
+              <div class="button-row">
+                <button type="submit" title="保存提示词组">保存</button>
+                <button id="libraryCancelBtn" type="button" class="secondary" title="取消编辑">取消</button>
+              </div>
+            </form>
 
-          <div class="filter-row">
-            <input id="librarySearch" type="search" placeholder="搜索提示词" />
-            <select id="libraryCategoryFilter" aria-label="提示词分类筛选">
-              <option value="">全部分类</option>
-            </select>
+            <div class="filter-row">
+              <input id="librarySearch" type="search" placeholder="搜索提示词" />
+              <select id="libraryCategoryFilter" aria-label="提示词分类筛选">
+                <option value="">全部分类</option>
+              </select>
+            </div>
           </div>
           <div id="libraryList" class="item-list"></div>
         </section>
 
         <section id="templatesTab" class="tab-panel">
-          <form id="templateForm" class="stack form-block">
-            <input id="templateEditId" type="hidden" />
-            <label>
-              模板名称
-              <input id="templateName" type="text" placeholder="例如：写实人像基础模板" />
-            </label>
-            <div class="two-col">
+          <div class="tab-controls">
+            <form id="templateForm" class="stack form-block">
+              <input id="templateEditId" type="hidden" />
               <label>
-                标签
-                <input id="templateTags" type="text" placeholder="逗号分隔" />
+                模板名称
+                <input id="templateName" type="text" placeholder="例如：写实人像基础模板" />
+              </label>
+              <div class="two-col">
+                <label>
+                  标签
+                  <input id="templateTags" type="text" placeholder="逗号分隔" />
+                </label>
+                <label>
+                  备注
+                  <input id="templateNote" type="text" />
+                </label>
+              </div>
+              <label>
+                正向提示词
+                <textarea id="templatePositive" rows="2"></textarea>
               </label>
               <label>
-                备注
-                <input id="templateNote" type="text" />
+                负向提示词
+                <textarea id="templateNegative" rows="2"></textarea>
               </label>
+              <div class="button-row">
+                <button type="button" id="fillTemplateFromCurrentBtn" class="secondary" title="从当前分段填入">填当前</button>
+                <button type="submit" title="保存模板">保存</button>
+                <button id="templateCancelBtn" type="button" class="secondary" title="取消编辑">取消</button>
+              </div>
+            </form>
+            <div class="filter-row">
+              <input id="templateSearch" type="search" placeholder="搜索模板" />
             </div>
-            <label>
-              正向提示词
-              <textarea id="templatePositive" rows="3"></textarea>
-            </label>
-            <label>
-              负向提示词
-              <textarea id="templateNegative" rows="3"></textarea>
-            </label>
-            <div class="button-row">
-              <button type="button" id="fillTemplateFromCurrentBtn" class="secondary">从当前分段填入</button>
-              <button type="submit">保存模板</button>
-              <button id="templateCancelBtn" type="button" class="secondary">取消编辑</button>
-            </div>
-          </form>
-          <div class="filter-row">
-            <input id="templateSearch" type="search" placeholder="搜索模板" />
           </div>
           <div id="templateList" class="item-list"></div>
         </section>
 
         <section id="dictionaryTab" class="tab-panel">
-          <form id="dictionaryForm" class="stack form-block">
-            <input id="dictionaryEditId" type="hidden" />
-            <label>
-              中文
-              <input id="dictionaryChinese" type="text" placeholder="例如：白色头发" />
-            </label>
-            <label>
-              英文
-              <input id="dictionaryEnglish" type="text" placeholder="例如：white hair" />
-            </label>
-            <div class="two-col">
+          <div class="tab-controls">
+            <form id="dictionaryForm" class="stack form-block">
+              <input id="dictionaryEditId" type="hidden" />
+              <div class="two-col">
+                <label>
+                  中文
+                  <input id="dictionaryChinese" type="text" placeholder="例如：白色头发" />
+                </label>
+                <label>
+                  英文
+                  <input id="dictionaryEnglish" type="text" placeholder="例如：white hair" />
+                </label>
+              </div>
+              <div class="two-col">
+                <label>
+                  分类
+                  <input id="dictionaryCategory" type="text" placeholder="外观 / 构图" />
+                </label>
+                <label>
+                  别名
+                  <input id="dictionaryAliases" type="text" placeholder="逗号分隔" />
+                </label>
+              </div>
               <label>
-                分类
-                <input id="dictionaryCategory" type="text" placeholder="外观 / 构图" />
+                备注
+                <textarea id="dictionaryNote" rows="1"></textarea>
               </label>
-              <label>
-                别名
-                <input id="dictionaryAliases" type="text" placeholder="逗号分隔" />
-              </label>
-            </div>
-            <label>
-              备注
-              <textarea id="dictionaryNote" rows="2"></textarea>
-            </label>
+              <div class="button-row">
+                <button type="submit" title="保存词条">保存</button>
+                <button id="dictionaryCancelBtn" type="button" class="secondary" title="取消编辑">取消</button>
+              </div>
+            </form>
             <div class="button-row">
-              <button type="submit">保存词条</button>
-              <button id="dictionaryCancelBtn" type="button" class="secondary">取消编辑</button>
+              <button id="addSelectedToDictionaryBtn" type="button" class="secondary" title="选中分段加入字典">选中入字典</button>
+              <button id="autoClassifyDictionaryBtn" type="button" class="secondary" title="用当前 AI 设置为未分类词条自动分类">AI 分类</button>
+              <button id="reclassifyDictionaryBtn" type="button" class="secondary" title="用 AI 重新分类全部词条并覆盖现有分类">AI 重分</button>
             </div>
-          </form>
-          <div class="button-row">
-            <button id="addSelectedToDictionaryBtn" type="button" class="secondary">选中分段加入字典</button>
-          </div>
-          <div class="filter-row">
-            <input id="dictionarySearch" type="search" placeholder="搜索字典" />
-            <select id="dictionaryCategoryFilter" aria-label="字典分类筛选">
-              <option value="">全部分类</option>
-            </select>
-          </div>
-          <div id="dictionaryToolbar" class="dictionary-toolbar" aria-label="字典词条操作">
-            <span id="dictionarySelectedHint" class="dictionary-toolbar-label">未选中词条</span>
-            <div class="dictionary-toolbar-actions">
-              <button type="button" data-action="insert-positive">追加正向</button>
-              <button type="button" data-action="insert-negative" class="secondary">追加负向</button>
-              <button type="button" data-action="edit" class="secondary">编辑</button>
-              <button type="button" data-action="delete" class="danger">删除</button>
+            <div class="filter-row">
+              <input id="dictionarySearch" type="search" placeholder="搜索字典" />
+              <select id="dictionaryCategoryFilter" aria-label="字典分类筛选">
+                <option value="">全部分类</option>
+              </select>
             </div>
+            <div id="dictionaryToolbar" class="dictionary-toolbar" aria-label="字典词条操作">
+              <span id="dictionarySelectedHint" class="dictionary-toolbar-label">未选中词条</span>
+              <div class="dictionary-toolbar-actions">
+                <button type="button" data-action="insert-positive" title="追加到正向草稿">正向</button>
+                <button type="button" data-action="insert-negative" class="secondary" title="追加到负向草稿">负向</button>
+                <button type="button" data-action="reclassify" class="secondary" title="AI 重新分类当前词条">重分</button>
+                <button type="button" data-action="edit" class="secondary" title="编辑">编</button>
+                <button type="button" data-action="delete" class="danger" title="删除">删</button>
+              </div>
+            </div>
+            <p class="helper-text dictionary-drag-hint">复选框/Ctrl 多选，Shift 连选；选中后可批量插入、重分或删除。</p>
           </div>
-          <p class="helper-text dictionary-drag-hint">拖动词条到正向或负向分段列表，可直接加入为分段。</p>
           <div id="dictionaryList" class="item-list"></div>
         </section>
       </aside>

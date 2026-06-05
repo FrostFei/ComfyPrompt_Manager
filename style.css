@@ -189,6 +189,13 @@ h3 {
   padding: 12px;
 }
 
+.sidebar {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  padding: 8px;
+}
+
 .center-column {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -349,6 +356,46 @@ h3 {
   border-bottom: 1px solid var(--border);
 }
 
+.sidebar .form-block {
+  padding-bottom: 6px;
+}
+
+.sidebar .stack {
+  gap: 5px;
+}
+
+.sidebar label {
+  gap: 2px;
+  font-size: 11px;
+}
+
+.sidebar input,
+.sidebar select,
+.sidebar textarea {
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+
+.sidebar textarea {
+  line-height: 1.4;
+}
+
+.sidebar .form-block textarea {
+  height: 40px;
+  min-height: 40px;
+}
+
+.sidebar .form-block textarea[rows="1"] {
+  height: 32px;
+  min-height: 32px;
+}
+
+.sidebar button,
+.sidebar .file-button {
+  min-height: 30px;
+  padding: 5px 9px;
+}
+
 .two-col {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -357,6 +404,15 @@ h3 {
 
 .filter-row {
   margin: 12px 0;
+}
+
+.sidebar .filter-row {
+  margin: 0;
+}
+
+.sidebar .button-row {
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .helper-text {
@@ -371,7 +427,7 @@ h3 {
 }
 
 .dictionary-drag-hint {
-  margin: -4px 0 8px;
+  margin: -3px 0 0;
 }
 
 .input-action-row {
@@ -413,7 +469,7 @@ h3 {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 
 .tab-button {
@@ -433,12 +489,28 @@ h3 {
 }
 
 .tab-panel.active {
-  display: block;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tab-controls {
+  display: grid;
+  gap: 6px;
+  min-height: 0;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+  background: var(--panel);
 }
 
 .item-list {
   display: grid;
+  align-content: start;
   gap: 8px;
+  min-height: 0;
+  padding-top: 6px;
+  overflow: auto;
 }
 
 .library-item,
@@ -453,7 +525,7 @@ h3 {
 
 .dictionary-item {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  grid-template-columns: 22px minmax(0, 1.6fr) minmax(72px, 0.7fr);
   gap: 6px;
   align-items: center;
   border: 1px solid var(--border);
@@ -462,6 +534,13 @@ h3 {
   background: var(--panel-soft);
   cursor: grab;
   outline: none;
+}
+
+.dictionary-select {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
 }
 
 .dictionary-item:active {
@@ -521,18 +600,23 @@ h3 {
   display: flex;
   gap: 6px;
   align-items: center;
+  justify-content: flex-end;
 }
 
 .dictionary-toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   margin: 8px 0;
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 5px 6px;
+  padding: 4px 5px;
   background: var(--panel-soft);
+}
+
+.sidebar .dictionary-toolbar {
+  margin: 0;
 }
 
 .dictionary-toolbar-label {
@@ -546,6 +630,7 @@ h3 {
 
 .dictionary-toolbar-actions {
   display: none;
+  flex-wrap: wrap;
   gap: 4px;
   justify-content: flex-end;
 }
@@ -555,8 +640,8 @@ h3 {
 }
 
 .dictionary-toolbar button {
-  min-height: 28px;
-  padding: 4px 7px;
+  min-height: 26px;
+  padding: 3px 6px;
 }
 
 .item-title {
@@ -962,7 +1047,12 @@ body.is-segment-dragging * {
   }
 
   .dictionary-item {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: 22px minmax(0, 1fr);
+  }
+
+  .dictionary-meta {
+    grid-column: 2;
+    justify-content: flex-start;
   }
 
   .dictionary-toolbar {

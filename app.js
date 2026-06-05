@@ -15,12 +15,20 @@ const state = loadState();
 const undoStack = [];
 let toastTimer = null;
 let selectedDictionaryId = null;
+let selectedDictionaryIds = new Set();
+let dictionarySelectionAnchorId = null;
+let dictionaryPointerActive = false;
 let segmentDragState = null;
 let groupedUndoKey = null;
 
 const SEGMENT_DRAG_DELAY = 420;
 const SEGMENT_DRAG_TOLERANCE = 8;
 const DICTIONARY_DRAG_MIME = "application/x-comfy-dictionary-id";
+const DICTIONARY_CLASSIFY_BATCH_SIZE = 20;
+const DICTIONARY_CLASSIFY_RETRY_BATCH_SIZE = 5;
+const DICTIONARY_CLASSIFY_MAX_RETRY_DEPTH = 4;
+const OPENAI_COMPATIBLE_PROVIDERS = ["deepseek", "openai-compatible", "custom"];
+const DEFAULT_DICTIONARY_CATEGORIES = ["外观", "发型", "表情", "姿势", "服装", "身体", "场景", "光影", "镜头", "画风", "质量", "负面", "其他"];
 
 const el = {
   undoBtn: document.getElementById("undoBtn"),
@@ -98,6 +106,8 @@ const el = {
   dictionaryNote: document.getElementById("dictionaryNote"),
   dictionaryCancelBtn: document.getElementById("dictionaryCancelBtn"),
   addSelectedToDictionaryBtn: document.getElementById("addSelectedToDictionaryBtn"),
+  autoClassifyDictionaryBtn: document.getElementById("autoClassifyDictionaryBtn"),
+  reclassifyDictionaryBtn: document.getElementById("reclassifyDictionaryBtn"),
   dictionarySearch: document.getElementById("dictionarySearch"),
   dictionaryCategoryFilter: document.getElementById("dictionaryCategoryFilter"),
   dictionaryToolbar: document.getElementById("dictionaryToolbar"),
@@ -252,7 +262,7 @@ function restoreStateSnapshot(snapshot) {
   const restored = normalizeImportedState(snapshot);
   Object.keys(state).forEach((key) => delete state[key]);
   Object.assign(state, restored);
-  if (!state.dictionary.some((item) => item.id === selectedDictionaryId)) selectedDictionaryId = null;
+  syncDictionarySelectionWithState();
   saveState();
   renderAll();
 }
@@ -364,8 +374,11 @@ function bindDictionaryEvents() {
   el.dictionaryForm.addEventListener("submit", saveDictionaryItem);
   el.dictionaryCancelBtn.addEventListener("click", resetDictionaryForm);
   el.addSelectedToDictionaryBtn.addEventListener("click", addSelectedSegmentToDictionary);
+  el.autoClassifyDictionaryBtn.addEventListener("click", autoClassifyUncategorizedDictionary);
+  el.reclassifyDictionaryBtn.addEventListener("click", reclassifyAllDictionary);
   el.dictionarySearch.addEventListener("input", renderDictionary);
   el.dictionaryCategoryFilter.addEventListener("change", renderDictionary);
+  el.dictionaryList.addEventListener("pointerdown", handleDictionaryPointerDown);
   el.dictionaryList.addEventListener("click", handleDictionaryClick);
   el.dictionaryList.addEventListener("focusin", handleDictionaryFocus);
   el.dictionaryList.addEventListener("dragstart", handleDictionaryDragStart);
@@ -953,6 +966,10 @@ function handleDictionaryDragStart(event) {
   const item = state.dictionary.find((entry) => entry.id === card.dataset.id);
   if (!item) return;
 
+  if (!selectedDictionaryIds.has(item.id)) {
+    selectedDictionaryIds = new Set([item.id]);
+    dictionarySelectionAnchorId = item.id;
+  }
   selectedDictionaryId = item.id;
   card.classList.add("dragging");
   event.dataTransfer.effectAllowed = "copy";
@@ -1560,6 +1577,8 @@ function saveDictionaryItem(event) {
   captureUndoStep();
   upsertById(state.dictionary, item);
   selectedDictionaryId = item.id;
+  selectedDictionaryIds = new Set([item.id]);
+  dictionarySelectionAnchorId = item.id;
   resetDictionaryForm();
   saveState();
   renderCategoryFilters();
@@ -1586,17 +1605,8 @@ function normalizeDictionaryItem(item) {
 }
 
 function renderDictionary() {
-  const query = normalizeSearch(el.dictionarySearch.value);
-  const category = el.dictionaryCategoryFilter.value;
-  const items = state.dictionary.filter((item) => {
-    const matchesCategory = !category || item.category === category;
-    const haystack = normalizeSearch([item.chinese, item.english, item.category, item.aliases, item.note].join(" "));
-    return matchesCategory && (!query || haystack.includes(query));
-  });
-
-  if (!items.some((item) => item.id === selectedDictionaryId)) {
-    selectedDictionaryId = null;
-  }
+  const items = getVisibleDictionaryItems();
+  syncDictionarySelectionWithState(items);
 
   el.dictionaryList.innerHTML = "";
   if (!items.length) {
@@ -1607,23 +1617,22 @@ function renderDictionary() {
 
   items.forEach((item) => {
     const card = document.createElement("article");
-    const isSelected = item.id === selectedDictionaryId;
+    const isSelected = selectedDictionaryIds.has(item.id);
     card.className = "dictionary-item" + (isSelected ? " selected" : "");
     card.dataset.id = item.id;
     card.draggable = true;
     card.setAttribute("draggable", "true");
     card.tabIndex = 0;
     card.setAttribute("aria-selected", String(isSelected));
-    card.setAttribute("title", "拖到正向或负向分段列表，可直接加入为分段");
+    card.setAttribute("title", "点击选中，Ctrl/Shift 或复选框可多选；拖到分段列表可加入为分段");
     card.innerHTML = `
+      <input class="dictionary-select" type="checkbox" aria-label="选择词条" ${isSelected ? "checked" : ""} />
       <div class="dictionary-main">
         <strong title="${escapeAttr(item.chinese || item.english)}">${escapeHtml(item.chinese || item.english)}</strong>
         <span title="${escapeAttr(item.english || item.chinese)}">${escapeHtml(item.english || item.chinese)}</span>
       </div>
       <div class="dictionary-meta">
         <span>${escapeHtml(item.category || "未分类")}</span>
-        ${item.aliases ? `<span title="${escapeAttr(item.aliases)}">别名：${escapeHtml(item.aliases)}</span>` : ""}
-        ${item.note ? `<span title="${escapeAttr(item.note)}">备注：${escapeHtml(item.note)}</span>` : ""}
       </div>
     `;
     el.dictionaryList.appendChild(card);
@@ -1632,58 +1641,142 @@ function renderDictionary() {
   updateDictionarySelectionUi();
 }
 
+function getVisibleDictionaryItems() {
+  const query = normalizeSearch(el.dictionarySearch.value);
+  const category = el.dictionaryCategoryFilter.value;
+  return state.dictionary.filter((item) => {
+    const matchesCategory = !category || item.category === category;
+    const haystack = normalizeSearch([item.chinese, item.english, item.category, item.aliases, item.note].join(" "));
+    return matchesCategory && (!query || haystack.includes(query));
+  });
+}
+
+function handleDictionaryPointerDown() {
+  dictionaryPointerActive = true;
+  window.setTimeout(() => {
+    dictionaryPointerActive = false;
+  }, 0);
+}
+
 function handleDictionaryClick(event) {
   const card = event.target.closest(".dictionary-item");
   if (!card) return;
 
-  card.focus();
-  selectDictionaryItem(card.dataset.id);
+  const checkbox = event.target.closest(".dictionary-select");
+  if (!checkbox) card.focus();
+
+  const mode = event.shiftKey ? "range" : checkbox || event.ctrlKey || event.metaKey ? "toggle" : "replace";
+  selectDictionaryItem(card.dataset.id, { mode });
 }
 
 function handleDictionaryFocus(event) {
+  if (dictionaryPointerActive || event.target.closest(".dictionary-select")) return;
   const card = event.target.closest(".dictionary-item");
   if (!card) return;
-  selectDictionaryItem(card.dataset.id);
+  selectDictionaryItem(card.dataset.id, { mode: "replace" });
 }
 
-function handleDictionaryToolbarClick(event) {
+async function handleDictionaryToolbarClick(event) {
   const button = event.target.closest("button[data-action]");
   if (!button) return;
 
-  const item = getSelectedDictionaryItem();
-  if (!item) {
+  const items = getSelectedDictionaryItems();
+  if (!items.length) {
     showToast("请先选中一个词条");
     return;
   }
 
+  const item = getSelectedDictionaryItem() || items[0];
   const action = button.dataset.action;
   if (action === "edit") editDictionaryItem(item);
-  if (action === "delete") deleteDictionaryItem(item.id);
-  if (action === "insert-positive") insertDictionaryItem(item, "positive");
-  if (action === "insert-negative") insertDictionaryItem(item, "negative");
+  if (action === "delete") deleteDictionaryItems(items);
+  if (action === "insert-positive") insertDictionaryItems(items, "positive");
+  if (action === "insert-negative") insertDictionaryItems(items, "negative");
+  if (action === "reclassify") await reclassifySelectedDictionaryItems(button);
 }
 
-function selectDictionaryItem(id) {
+function selectDictionaryItem(id, options = {}) {
   const item = state.dictionary.find((entry) => entry.id === id);
   if (!item) return;
-  selectedDictionaryId = item.id;
+  const mode = options.mode || "replace";
+
+  if (mode === "range") {
+    selectDictionaryRange(item.id);
+  } else if (mode === "toggle") {
+    if (selectedDictionaryIds.has(item.id)) {
+      selectedDictionaryIds.delete(item.id);
+      selectedDictionaryId = selectedDictionaryId === item.id ? firstSelectedDictionaryId() : selectedDictionaryId;
+    } else {
+      selectedDictionaryIds.add(item.id);
+      selectedDictionaryId = item.id;
+    }
+    dictionarySelectionAnchorId = item.id;
+  } else {
+    selectedDictionaryIds = new Set([item.id]);
+    selectedDictionaryId = item.id;
+    dictionarySelectionAnchorId = item.id;
+  }
+
+  if (!selectedDictionaryIds.size) selectedDictionaryId = null;
+  if (!selectedDictionaryId && selectedDictionaryIds.size) selectedDictionaryId = firstSelectedDictionaryId();
   updateDictionarySelectionUi();
+  const selectedItem = getSelectedDictionaryItem();
+  if (options.edit !== false && selectedItem) editDictionaryItem(selectedItem);
+  if (options.edit !== false && !selectedItem) resetDictionaryForm();
 }
 
 function getSelectedDictionaryItem() {
   return state.dictionary.find((entry) => entry.id === selectedDictionaryId) || null;
 }
 
+function getSelectedDictionaryItems() {
+  return state.dictionary.filter((entry) => selectedDictionaryIds.has(entry.id));
+}
+
+function firstSelectedDictionaryId() {
+  return selectedDictionaryIds.values().next().value || null;
+}
+
+function selectDictionaryRange(id) {
+  const visibleIds = getVisibleDictionaryItems().map((item) => item.id);
+  const anchor = dictionarySelectionAnchorId && visibleIds.includes(dictionarySelectionAnchorId) ? dictionarySelectionAnchorId : selectedDictionaryId;
+  if (!anchor || !visibleIds.includes(anchor)) {
+    selectedDictionaryIds = new Set([id]);
+    selectedDictionaryId = id;
+    dictionarySelectionAnchorId = id;
+    return;
+  }
+
+  const start = visibleIds.indexOf(anchor);
+  const end = visibleIds.indexOf(id);
+  const [from, to] = start <= end ? [start, end] : [end, start];
+  visibleIds.slice(from, to + 1).forEach((entryId) => selectedDictionaryIds.add(entryId));
+  selectedDictionaryId = id;
+}
+
+function syncDictionarySelectionWithState(visibleItems = state.dictionary) {
+  const validIds = new Set(visibleItems.map((item) => item.id));
+  selectedDictionaryIds = new Set([...selectedDictionaryIds].filter((id) => validIds.has(id)));
+  if (selectedDictionaryId && !validIds.has(selectedDictionaryId)) selectedDictionaryId = firstSelectedDictionaryId();
+  if (!selectedDictionaryId && selectedDictionaryIds.size) selectedDictionaryId = firstSelectedDictionaryId();
+  if (dictionarySelectionAnchorId && !validIds.has(dictionarySelectionAnchorId)) dictionarySelectionAnchorId = selectedDictionaryId;
+  if (!state.dictionary.some((item) => item.id === selectedDictionaryId)) selectedDictionaryId = null;
+}
+
 function updateDictionarySelectionUi() {
+  syncDictionarySelectionWithState();
+  const selectedItems = getSelectedDictionaryItems();
   const selectedItem = getSelectedDictionaryItem();
   const selectedLabel = selectedItem ? selectedItem.chinese || selectedItem.english : "";
-  el.dictionarySelectedHint.textContent = selectedItem ? `选中：${selectedLabel}` : "未选中词条";
-  el.dictionaryToolbar.classList.toggle("active", Boolean(selectedItem));
+  el.dictionarySelectedHint.textContent = selectedItems.length > 1 ? `已选 ${selectedItems.length} 个词条` : selectedItem ? `选中：${selectedLabel}` : "未选中词条";
+  el.dictionaryToolbar.classList.toggle("active", selectedItems.length > 0);
 
   el.dictionaryList.querySelectorAll(".dictionary-item").forEach((card) => {
-    const isSelected = card.dataset.id === selectedDictionaryId;
+    const isSelected = selectedDictionaryIds.has(card.dataset.id);
     card.classList.toggle("selected", isSelected);
     card.setAttribute("aria-selected", String(isSelected));
+    const checkbox = card.querySelector(".dictionary-select");
+    if (checkbox) checkbox.checked = isSelected;
   });
 }
 
@@ -1697,24 +1790,55 @@ function editDictionaryItem(item) {
 }
 
 function deleteDictionaryItem(id) {
-  if (!confirm("确定删除这个词条？")) return;
+  const item = state.dictionary.find((entry) => entry.id === id);
+  if (item) deleteDictionaryItems([item]);
+}
+
+function deleteDictionaryItems(items) {
+  const validItems = items.filter(Boolean);
+  if (!validItems.length) {
+    showToast("请先选中词条");
+    return;
+  }
+
+  const confirmText = validItems.length === 1 ? "确定删除这个词条？" : `确定删除选中的 ${validItems.length} 个词条？`;
+  if (!confirm(confirmText)) return;
+
+  const ids = new Set(validItems.map((item) => item.id));
   captureUndoStep();
-  state.dictionary = state.dictionary.filter((item) => item.id !== id);
-  if (selectedDictionaryId === id) selectedDictionaryId = null;
+  state.dictionary = state.dictionary.filter((item) => !ids.has(item.id));
+  selectedDictionaryIds = new Set([...selectedDictionaryIds].filter((id) => !ids.has(id)));
+  if (selectedDictionaryId && ids.has(selectedDictionaryId)) selectedDictionaryId = firstSelectedDictionaryId();
+  if (!selectedDictionaryIds.size) {
+    selectedDictionaryId = null;
+    dictionarySelectionAnchorId = null;
+    resetDictionaryForm();
+  }
   saveState();
   renderCategoryFilters();
   renderDictionary();
   renderPromptArea("positive");
   renderPromptArea("negative");
+  showToast(validItems.length === 1 ? "词条已删除" : `已删除 ${validItems.length} 个词条`);
 }
 
 function insertDictionaryItem(item, kind) {
+  insertDictionaryItems([item], kind);
+}
+
+function insertDictionaryItems(items, kind) {
+  const texts = items.map((item) => item.english || item.chinese).map((text) => String(text || "").trim()).filter(Boolean);
+  if (!texts.length) {
+    showToast("选中词条没有可插入内容");
+    return;
+  }
+
   const target = kind === "positive" ? el.positiveInput : el.negativeInput;
-  const text = item.english || item.chinese;
-  appendTextToPromptInput(target, text);
+  appendTextToPromptInput(target, texts.join(", "));
   switchPromptTab(kind);
   target.focus();
-  showToast(kind === "positive" ? "已追加到正向草稿" : "已追加到负向草稿");
+  const targetName = kind === "positive" ? "正向草稿" : "负向草稿";
+  showToast(texts.length === 1 ? `已追加到${targetName}` : `已追加 ${texts.length} 个词条到${targetName}`);
 }
 
 function insertDictionaryItemAsSegment(item, kind, targetId = null) {
@@ -1780,6 +1904,168 @@ function addSegmentToDictionary(segment) {
   renderPromptArea("negative");
   showToast("已加入字典");
   return true;
+}
+
+async function autoClassifyUncategorizedDictionary() {
+  const items = state.dictionary.filter(isUncategorizedDictionaryItem);
+  await classifyDictionaryItems(items, {
+    button: el.autoClassifyDictionaryBtn,
+    loadingText: "分类中...",
+    emptyMessage: "没有未分类词条",
+    failMessage: "AI 自动分类失败",
+    startMessage: (count) => `开始为 ${count} 个未分类词条自动分类。`,
+    batchMessage: (batchIndex, count) => `分类批次 ${batchIndex}：${count} 个词条。`,
+    confirm: (count) => confirm(`将用 AI 为 ${count} 个未分类词条自动分类。\n\n分类结果会写回字典，可通过撤回恢复。确定继续吗？`),
+    shouldUpdate: isUncategorizedDictionaryItem,
+    successProcessMessage: (updated, changed, failed) => `自动分类完成：已更新 ${updated} 个词条${failed ? `，${failed} 个失败` : ""}。`,
+    successToast: (updated, changed, failed) => failed ? `已自动分类 ${updated} 个，${failed} 个失败` : `已自动分类 ${updated} 个词条`
+  });
+}
+
+async function reclassifyAllDictionary() {
+  await classifyDictionaryItems(state.dictionary, {
+    button: el.reclassifyDictionaryBtn,
+    loadingText: "重分中...",
+    emptyMessage: "字典暂无词条",
+    failMessage: "AI 重新分类失败",
+    startMessage: (count) => `开始重新分类全部 ${count} 个词条，分类会覆盖原值。`,
+    batchMessage: (batchIndex, count) => `重分批次 ${batchIndex}：${count} 个词条。`,
+    confirm: (count) => {
+      const firstConfirm = confirm(`将用 AI 重新分类全部 ${count} 个词条，并覆盖原本分类。\n\n此操作可通过撤回恢复。确定继续吗？`);
+      if (!firstConfirm) return false;
+      return confirm(`二次确认：即将覆盖全部 ${count} 个词条的分类。\n\n确定执行 AI 重新分类吗？`);
+    },
+    successProcessMessage: (updated, changed, failed) => `全部重新分类完成：已处理 ${updated} 个词条，其中 ${changed} 个分类发生变化${failed ? `，${failed} 个失败` : ""}。`,
+    successToast: (updated, changed, failed) => failed ? `已重新分类 ${updated} 个，${failed} 个失败` : `已重新分类 ${updated} 个词条`
+  });
+}
+
+async function reclassifySelectedDictionaryItems(button) {
+  const items = getSelectedDictionaryItems();
+  if (!items.length) {
+    showToast("请先选中一个词条");
+    return;
+  }
+
+  const selectedItem = getSelectedDictionaryItem() || items[0];
+  editDictionaryItem(selectedItem);
+  await classifyDictionaryItems(items, {
+    button,
+    loadingText: "重分中",
+    emptyMessage: "请先选中一个词条",
+    failMessage: "选中词条重新分类失败",
+    startMessage: (count) => count === 1 ? `开始重新分类词条：${selectedItem.chinese || selectedItem.english}` : `开始重新分类选中的 ${count} 个词条。`,
+    batchMessage: (batchIndex, count) => count === 1 ? "正在为当前词条生成分类。" : `选中词条重分批次 ${batchIndex}：${count} 个词条。`,
+    confirm: (count) => count === 1 || confirm(`将用 AI 重新分类选中的 ${count} 个词条，并覆盖这些词条的原分类。确定继续吗？`),
+    editSelectedAfter: true,
+    successProcessMessage: (updated, changed, failed) => {
+      const failedText = failed ? `，${failed} 个失败` : "";
+      return `选中词条重新分类完成：${updated} 个已处理，${changed} 个分类发生变化${failedText}。`;
+    },
+    successToast: (updated, changed, failed) => failed ? `已重分 ${updated} 个，${failed} 个失败` : `已重新分类 ${updated} 个词条`
+  });
+}
+
+async function classifyDictionaryItems(items, options = {}) {
+  if (!items.length) {
+    showToast(options.emptyMessage || "没有需要分类的词条");
+    return false;
+  }
+
+  syncSettingsFromInputs();
+  if (OPENAI_COMPATIBLE_PROVIDERS.includes(state.settings.provider) && !String(state.settings.apiKey || "").trim()) {
+    showToast("请先输入 AI API Key");
+    return false;
+  }
+
+  if (options.confirm && !options.confirm(items.length)) return false;
+
+  const button = options.button;
+  const originalText = button?.textContent || "";
+  if (button) {
+    button.disabled = true;
+    button.textContent = options.loadingText || "分类中...";
+  }
+
+  resetAiProcess();
+  appendProcessLine(typeof options.startMessage === "function" ? options.startMessage(items.length) : `开始为 ${items.length} 个词条分类。`);
+
+  try {
+    const categoryById = new Map();
+    const failedIds = new Set();
+    for (let index = 0; index < items.length; index += DICTIONARY_CLASSIFY_BATCH_SIZE) {
+      const batch = items.slice(index, index + DICTIONARY_CLASSIFY_BATCH_SIZE);
+      const batchIndex = Math.floor(index / DICTIONARY_CLASSIFY_BATCH_SIZE) + 1;
+      appendProcessLine(typeof options.batchMessage === "function" ? options.batchMessage(batchIndex, batch.length) : `分类批次 ${batchIndex}：${batch.length} 个词条。`);
+      const batchResult = await requestAiDictionaryCategoriesResilient(batch, { ...state.settings }, {
+        onLog: appendProcessLine,
+        onReasoning: appendReasoningToken
+      }, 0);
+      batchResult.categoryById.forEach((category, id) => categoryById.set(id, category));
+      batchResult.failedItems.forEach((item) => failedIds.add(item.id));
+    }
+
+    if (!categoryById.size) {
+      const failedCount = failedIds.size || items.length;
+      showToast(`AI 未返回可用分类，${failedCount} 个词条未处理`);
+      appendProcessLine(`AI 未返回可用分类，${failedCount} 个词条未处理。`);
+      return false;
+    }
+
+    const targetIds = new Set(items.map((item) => item.id));
+    captureUndoStep();
+    let updated = 0;
+    let changed = 0;
+    const appliedIds = new Set();
+    state.dictionary.forEach((item) => {
+      if (!targetIds.has(item.id)) return;
+      if (options.shouldUpdate && !options.shouldUpdate(item)) return;
+      const category = categoryById.get(item.id);
+      if (!category) return;
+      if (item.category !== category) changed += 1;
+      item.category = category;
+      appliedIds.add(item.id);
+      updated += 1;
+    });
+    appliedIds.forEach((id) => failedIds.delete(id));
+    const failedCount = failedIds.size;
+
+    if (!updated) {
+      showToast("没有分类被更新");
+      appendProcessLine("没有分类被更新。");
+      return false;
+    }
+
+    saveState();
+    renderCategoryFilters();
+    renderDictionary();
+    renderPromptArea("positive");
+    renderPromptArea("negative");
+    if (options.editSelectedAfter && targetIds.has(selectedDictionaryId)) {
+      const selectedItem = getSelectedDictionaryItem();
+      if (selectedItem) editDictionaryItem(selectedItem);
+    }
+
+    if (failedCount) appendProcessLine(`有 ${failedCount} 个词条未能完成分类，可再次点击重试。`);
+    appendProcessLine(typeof options.successProcessMessage === "function" ? options.successProcessMessage(updated, changed, failedCount) : `分类完成：已更新 ${updated} 个词条${failedCount ? `，${failedCount} 个失败` : ""}。`);
+    showToast(typeof options.successToast === "function" ? options.successToast(updated, changed, failedCount) : failedCount ? `已分类 ${updated} 个，${failedCount} 个失败` : `已分类 ${updated} 个词条`);
+    return failedCount === 0;
+  } catch (error) {
+    console.error(error);
+    appendProcessLine(getFriendlyErrorMessage(error));
+    showToast(options.failMessage || "AI 分类失败");
+    return false;
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
+}
+
+function isUncategorizedDictionaryItem(item) {
+  const category = String(item?.category || "").trim();
+  return !category || category === "未分类";
 }
 
 function renderCategoryFilters() {
@@ -2110,7 +2396,7 @@ function hasEnglishText(text) {
 }
 
 async function requestAiTranslation(text, direction, settings, callbacks = {}) {
-  if (["deepseek", "openai-compatible", "custom"].includes(settings.provider)) {
+  if (OPENAI_COMPATIBLE_PROVIDERS.includes(settings.provider)) {
     return requestOpenAiCompatibleTranslation(text, direction, settings, callbacks);
   }
 
@@ -2122,6 +2408,72 @@ async function requestAiTranslation(text, direction, settings, callbacks = {}) {
   callbacks.onLog?.("当前 Provider 是 Mock，未调用真实 API。");
   callbacks.onContent?.(result);
   return result;
+}
+
+async function requestAiDictionaryCategories(items, settings, callbacks = {}) {
+  if (OPENAI_COMPATIBLE_PROVIDERS.includes(settings.provider)) {
+    return requestOpenAiCompatibleDictionaryCategories(items, settings, callbacks);
+  }
+
+  await new Promise((resolve) => window.setTimeout(resolve, 180));
+  callbacks.onLog?.("当前 Provider 是 Mock，使用本地模拟分类。");
+  return Object.fromEntries(items.map((item) => [item.id, getMockDictionaryCategory(item)]));
+}
+
+async function requestAiDictionaryCategoriesResilient(items, settings, callbacks = {}, depth = 0) {
+  const emptyResult = { categoryById: new Map(), failedItems: [] };
+  if (!items.length) return emptyResult;
+
+  try {
+    const response = await requestAiDictionaryCategories(items, settings, callbacks);
+    const categoryById = new Map();
+    const missingItems = [];
+
+    items.forEach((item) => {
+      const category = normalizeDictionaryCategory(response[item.id]);
+      if (category) {
+        categoryById.set(item.id, category);
+      } else {
+        missingItems.push(item);
+      }
+    });
+
+    if (!missingItems.length) return { categoryById, failedItems: [] };
+    callbacks.onLog?.(`本段 JSON 缺少 ${missingItems.length} 个词条，继续拆分补齐。`);
+    const retryResult = await retryDictionaryCategorySubBatches(missingItems, settings, callbacks, depth + 1);
+    retryResult.categoryById.forEach((category, id) => categoryById.set(id, category));
+    return { categoryById, failedItems: retryResult.failedItems };
+  } catch (error) {
+    callbacks.onLog?.(`分类分段失败：${getFriendlyErrorMessage(error)}`);
+    return retryDictionaryCategorySubBatches(items, settings, callbacks, depth + 1);
+  }
+}
+
+async function retryDictionaryCategorySubBatches(items, settings, callbacks = {}, depth = 0) {
+  if (!items.length) return { categoryById: new Map(), failedItems: [] };
+  if (items.length === 1 || depth > DICTIONARY_CLASSIFY_MAX_RETRY_DEPTH) {
+    return { categoryById: new Map(), failedItems: items };
+  }
+
+  const categoryById = new Map();
+  const failedItems = [];
+  const chunkSize = getDictionaryRetryChunkSize(items.length);
+  callbacks.onLog?.(`将 ${items.length} 个词条拆成每段最多 ${chunkSize} 个，重复请求 JSON 分类。`);
+
+  for (let index = 0; index < items.length; index += chunkSize) {
+    const chunk = items.slice(index, index + chunkSize);
+    const result = await requestAiDictionaryCategoriesResilient(chunk, settings, callbacks, depth);
+    result.categoryById.forEach((category, id) => categoryById.set(id, category));
+    failedItems.push(...result.failedItems);
+  }
+
+  return { categoryById, failedItems };
+}
+
+function getDictionaryRetryChunkSize(count) {
+  if (count <= 2) return 1;
+  if (count <= DICTIONARY_CLASSIFY_RETRY_BATCH_SIZE) return Math.ceil(count / 2);
+  return DICTIONARY_CLASSIFY_RETRY_BATCH_SIZE;
 }
 
 async function requestOpenAiCompatibleTranslation(text, direction, settings, callbacks = {}) {
@@ -2184,6 +2536,205 @@ async function requestOpenAiCompatibleTranslation(text, direction, settings, cal
   const content = await readStreamingChatCompletion(response, callbacks);
   if (!content) throw new Error("DeepSeek 没有返回可用翻译结果。");
   return content;
+}
+
+async function requestOpenAiCompatibleDictionaryCategories(items, settings, callbacks = {}) {
+  const apiKey = String(settings.apiKey || "").trim();
+  if (!apiKey) throw new Error("请先输入 DeepSeek API Key。");
+
+  const endpoint = String(settings.endpoint || DEFAULT_SETTINGS.endpoint).trim();
+  const model = String(settings.model || DEFAULT_SETTINGS.model).trim();
+  const categories = getDictionaryCategoryCandidates();
+  const url = buildChatCompletionsUrl(endpoint);
+  const body = {
+    model,
+    messages: [
+      {
+        role: "system",
+        content:
+          `You classify ComfyUI and Stable Diffusion prompt dictionary terms. Return only valid JSON for the current batch. Each key must exactly match a provided id and each value must be one short Chinese category name. Prefer these categories when suitable: ${categories.join("、")}. If uncertain, use "其他". Include every provided id. Do not return markdown, explanations, aliases, notes, or extra keys.`
+      },
+      {
+        role: "user",
+        content: `为以下本段词条分类，只根据中文、英文和别名判断。只返回 JSON 对象，格式为 {"词条id":"分类"}：\n${JSON.stringify(buildDictionaryCategoryRows(items), null, 2)}`
+      }
+    ],
+    max_tokens: Math.max(600, Math.min(1800, 220 + items.length * 60)),
+    stream: true,
+    temperature: 0.1
+  };
+
+  if (settings.provider === "deepseek") {
+    body.thinking = { type: "disabled" };
+    callbacks.onLog?.("DeepSeek 字典分类使用快速模式，要求直接返回 JSON。");
+  }
+
+  callbacks.onLog?.(`请求：${url}`);
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const payload = await safeReadJson(response);
+    const message = payload?.error?.message || payload?.message || `HTTP ${response.status}`;
+    throw new Error(`AI 分类请求失败：${message}`);
+  }
+
+  const content = await readStreamingChatCompletion(response, callbacks);
+  if (!content) throw new Error("AI 没有返回可用分类结果。");
+  const parsed = parseDictionaryCategoryResponse(content);
+  if (!Object.keys(parsed).length) throw new Error("AI 分类结果不是可识别的 JSON。");
+  return parsed;
+}
+
+function buildDictionaryCategoryRows(items) {
+  return items.map((item) => ({
+    id: item.id,
+    chinese: item.chinese || "",
+    english: item.english || "",
+    aliases: item.aliases || ""
+  }));
+}
+
+function getDictionaryCategoryCandidates() {
+  const existing = state.dictionary
+    .map((item) => String(item.category || "").trim())
+    .filter((category) => category && category !== "未分类");
+  return [...new Set([...DEFAULT_DICTIONARY_CATEGORIES, ...existing])].slice(0, 40);
+}
+
+function parseDictionaryCategoryResponse(content) {
+  const text = String(content || "").trim();
+  const withoutFence = text.replace(/^```(?:json)?\s*/i, "").replace(/```$/i, "").trim();
+  const payload = tryParseDictionaryCategoryJson(withoutFence) || tryParseDictionaryCategoryJson(extractJsonObject(withoutFence));
+  const parsed = normalizeDictionaryCategoryPayload(payload);
+  if (Object.keys(parsed).length) return parsed;
+
+  return extractJsonObjects(withoutFence).reduce((merged, jsonText) => {
+    Object.assign(merged, normalizeDictionaryCategoryPayload(tryParseDictionaryCategoryJson(jsonText)));
+    return merged;
+  }, {});
+}
+
+function normalizeDictionaryCategoryPayload(payload) {
+  if (Array.isArray(payload)) {
+    return Object.fromEntries(payload.map((item) => [item?.id, item?.category]).filter(([id, category]) => id && category));
+  }
+
+  if (!payload || typeof payload !== "object") return {};
+  if (Array.isArray(payload.items)) {
+    return Object.fromEntries(payload.items.map((item) => [item?.id, item?.category]).filter(([id, category]) => id && category));
+  }
+  if (payload.categories && typeof payload.categories === "object" && !Array.isArray(payload.categories)) return payload.categories;
+  return payload;
+}
+
+function tryParseDictionaryCategoryJson(text) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    return null;
+  }
+}
+
+function extractJsonObject(text) {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return "";
+  return text.slice(start, end + 1);
+}
+
+function extractJsonObjects(text) {
+  const objects = [];
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  const source = String(text || "");
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = inString;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === "{") {
+      if (depth === 0) start = index;
+      depth += 1;
+    }
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        objects.push(text.slice(start, index + 1));
+        start = -1;
+      }
+    }
+  }
+
+  return objects;
+}
+
+function normalizeDictionaryCategory(value) {
+  let category = value && typeof value === "object" ? value.category || value.name || value.label : value;
+  category = String(category || "")
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/^(分类|类别|category)\s*[:：]\s*/i, "")
+    .split(/[，,;；。.\n\r]/)[0]
+    .trim();
+
+  const aliasMap = {
+    appearance: "外观",
+    hair: "发型",
+    expression: "表情",
+    pose: "姿势",
+    clothing: "服装",
+    body: "身体",
+    scene: "场景",
+    lighting: "光影",
+    camera: "镜头",
+    style: "画风",
+    quality: "质量",
+    negative: "负面",
+    other: "其他"
+  };
+  category = aliasMap[category.toLowerCase()] || category;
+  if (!category || category === "未分类" || category === "无") return "其他";
+  return category.slice(0, 12);
+}
+
+function getMockDictionaryCategory(item) {
+  const text = normalizeSearch([item.chinese, item.english, item.aliases].filter(Boolean).join(" "));
+  const rules = [
+    ["负面", ["bad", "worst", "blurry", "low quality", "error", "extra", "mutated", "畸形", "错误", "低质量", "模糊"]],
+    ["质量", ["masterpiece", "best quality", "high quality", "detailed", "sharp", "杰作", "高质量", "精细"]],
+    ["发型", ["hair", "bangs", "ponytail", "braid", "twintails", "发", "头发", "刘海", "辫"]],
+    ["表情", ["smile", "blush", "cry", "angry", "expression", "eyes", "mouth", "表情", "微笑", "脸红", "眼", "嘴"]],
+    ["姿势", ["pose", "sitting", "standing", "lying", "kneeling", "hand up", "姿势", "坐", "站", "躺", "跪"]],
+    ["服装", ["dress", "skirt", "shirt", "uniform", "socks", "panties", "bikini", "ribbon", "bow", "clothes", "裙", "衬衫", "制服", "袜", "内裤", "蝴蝶结"]],
+    ["身体", ["body", "breast", "thigh", "leg", "arm", "hand", "foot", "feet", "tail", "ear", "groin", "身体", "胸", "腿", "手", "脚", "尾巴", "耳"]],
+    ["场景", ["background", "room", "bed", "street", "forest", "sky", "water", "背景", "房间", "床", "街道", "森林", "天空"]],
+    ["光影", ["light", "shadow", "glow", "backlight", "rim light", "光", "影", "发光", "逆光"]],
+    ["镜头", ["camera", "close-up", "portrait", "angle", "view", "lens", "镜头", "特写", "视角", "构图"]],
+    ["画风", ["style", "anime", "realistic", "watercolor", "sketch", "风格", "画风", "写实", "水彩"]]
+  ];
+  return rules.find(([, keywords]) => keywords.some((keyword) => text.includes(keyword)))?.[0] || "其他";
 }
 
 async function readStreamingChatCompletion(response, callbacks = {}) {
