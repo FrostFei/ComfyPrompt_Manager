@@ -20,6 +20,7 @@ let groupedUndoKey = null;
 
 const SEGMENT_DRAG_DELAY = 420;
 const SEGMENT_DRAG_TOLERANCE = 8;
+const DICTIONARY_DRAG_MIME = "application/x-comfy-dictionary-id";
 
 const el = {
   undoBtn: document.getElementById("undoBtn"),
@@ -312,6 +313,19 @@ function bindCoreEvents() {
   el.negativeSegments.addEventListener("input", (event) => handleSegmentInput(event, "negative"));
   el.positiveSegments.addEventListener("pointerdown", (event) => handleSegmentPointerDown(event, "positive"));
   el.negativeSegments.addEventListener("pointerdown", (event) => handleSegmentPointerDown(event, "negative"));
+  el.positiveSegments.addEventListener("dragover", (event) => handleDictionaryDragOverSegmentList(event, "positive"));
+  el.negativeSegments.addEventListener("dragover", (event) => handleDictionaryDragOverSegmentList(event, "negative"));
+  el.positiveSegments.addEventListener("dragleave", handleDictionaryDragLeaveSegmentList);
+  el.negativeSegments.addEventListener("dragleave", handleDictionaryDragLeaveSegmentList);
+  el.positiveSegments.addEventListener("drop", (event) => handleDictionaryDropOnSegmentList(event, "positive"));
+  el.negativeSegments.addEventListener("drop", (event) => handleDictionaryDropOnSegmentList(event, "negative"));
+  document.querySelectorAll(".editor-panel[data-kind] .segment-region").forEach((region) => {
+    const kind = region.closest(".editor-panel[data-kind]")?.dataset.kind;
+    if (!kind) return;
+    region.addEventListener("dragover", (event) => handleDictionaryDragOverSegmentList(event, kind));
+    region.addEventListener("dragleave", handleDictionaryDragLeaveSegmentList);
+    region.addEventListener("drop", (event) => handleDictionaryDropOnSegmentList(event, kind));
+  });
   document.addEventListener("pointermove", handleSegmentPointerMove);
   document.addEventListener("pointerup", handleSegmentPointerEnd);
   document.addEventListener("pointercancel", handleSegmentPointerEnd);
@@ -354,6 +368,8 @@ function bindDictionaryEvents() {
   el.dictionaryCategoryFilter.addEventListener("change", renderDictionary);
   el.dictionaryList.addEventListener("click", handleDictionaryClick);
   el.dictionaryList.addEventListener("focusin", handleDictionaryFocus);
+  el.dictionaryList.addEventListener("dragstart", handleDictionaryDragStart);
+  el.dictionaryList.addEventListener("dragend", handleDictionaryDragEnd);
   el.dictionaryToolbar.addEventListener("click", handleDictionaryToolbarClick);
 }
 
@@ -928,6 +944,79 @@ function clearSegmentDragClasses() {
   el.positiveSegments.classList.remove("drag-active");
   el.negativeSegments.classList.remove("drag-active");
   document.querySelectorAll(".segment-item.dragging").forEach((item) => item.classList.remove("dragging"));
+}
+
+function handleDictionaryDragStart(event) {
+  const card = event.target.closest(".dictionary-item");
+  if (!card) return;
+
+  const item = state.dictionary.find((entry) => entry.id === card.dataset.id);
+  if (!item) return;
+
+  selectedDictionaryId = item.id;
+  card.classList.add("dragging");
+  event.dataTransfer.effectAllowed = "copy";
+  event.dataTransfer.setData(DICTIONARY_DRAG_MIME, item.id);
+  event.dataTransfer.setData("text/plain", item.english || item.chinese);
+  updateDictionarySelectionUi();
+}
+
+function handleDictionaryDragEnd() {
+  clearDictionaryDragState();
+}
+
+function handleDictionaryDragOverSegmentList(event, kind) {
+  if (!isDictionaryDragEvent(event)) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  event.dataTransfer.dropEffect = "copy";
+  const list = getSegmentList(kind);
+  clearDictionaryDropTargets();
+  list.classList.add("dictionary-drop-active");
+
+  const target = event.target.closest(".segment-item");
+  if (target && list.contains(target)) {
+    target.classList.add("dictionary-drop-before");
+  }
+}
+
+function handleDictionaryDragLeaveSegmentList(event) {
+  if (event.currentTarget.contains(event.relatedTarget)) return;
+  event.stopPropagation();
+  event.currentTarget.classList.remove("dictionary-drop-active");
+  clearDictionaryDropTargets();
+}
+
+function handleDictionaryDropOnSegmentList(event, kind) {
+  if (!isDictionaryDragEvent(event)) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  const itemId = event.dataTransfer.getData(DICTIONARY_DRAG_MIME);
+  const item = state.dictionary.find((entry) => entry.id === itemId);
+  const list = getSegmentList(kind);
+  const target = event.target.closest(".segment-item");
+  const targetId = target && list.contains(target) ? target.dataset.id : null;
+  clearDictionaryDragState();
+  if (!item) return;
+
+  insertDictionaryItemAsSegment(item, kind, targetId);
+}
+
+function isDictionaryDragEvent(event) {
+  return Array.from(event.dataTransfer?.types || []).includes(DICTIONARY_DRAG_MIME);
+}
+
+function clearDictionaryDragState() {
+  el.positiveSegments.classList.remove("dictionary-drop-active");
+  el.negativeSegments.classList.remove("dictionary-drop-active");
+  el.dictionaryList.querySelectorAll(".dictionary-item.dragging").forEach((card) => card.classList.remove("dragging"));
+  clearDictionaryDropTargets();
+}
+
+function clearDictionaryDropTargets() {
+  document.querySelectorAll(".segment-item.dictionary-drop-before").forEach((item) => item.classList.remove("dictionary-drop-before"));
 }
 
 function getSegmentList(kind) {
@@ -1521,8 +1610,11 @@ function renderDictionary() {
     const isSelected = item.id === selectedDictionaryId;
     card.className = "dictionary-item" + (isSelected ? " selected" : "");
     card.dataset.id = item.id;
+    card.draggable = true;
+    card.setAttribute("draggable", "true");
     card.tabIndex = 0;
     card.setAttribute("aria-selected", String(isSelected));
+    card.setAttribute("title", "拖到正向或负向分段列表，可直接加入为分段");
     card.innerHTML = `
       <div class="dictionary-main">
         <strong title="${escapeAttr(item.chinese || item.english)}">${escapeHtml(item.chinese || item.english)}</strong>
@@ -1623,6 +1715,26 @@ function insertDictionaryItem(item, kind) {
   switchPromptTab(kind);
   target.focus();
   showToast(kind === "positive" ? "已追加到正向草稿" : "已追加到负向草稿");
+}
+
+function insertDictionaryItemAsSegment(item, kind, targetId = null) {
+  const text = String(item.english || item.chinese || "").trim();
+  if (!text) return;
+
+  const segment = createSegment(text, 1);
+  const segments = state.prompts[kind];
+  const targetIndex = targetId ? segments.findIndex((entry) => entry.id === targetId) : -1;
+  captureUndoStep();
+  if (targetIndex >= 0) {
+    segments.splice(targetIndex, 0, segment);
+  } else {
+    segments.push(segment);
+  }
+  state.selected = { kind, id: segment.id };
+  saveState();
+  switchPromptTab(kind);
+  renderAll();
+  showToast(kind === "positive" ? "词条已加入正向分段" : "词条已加入负向分段");
 }
 
 function resetDictionaryForm() {
